@@ -1180,12 +1180,13 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		})
 		corner(svSquare, 6)
 
+		-- FIXED: Left side is white (opaque), right side is pure hue (transparent)
 		new("UIGradient", {
 			Parent = svSquare,
 			Color = ColorSequence.new(Color3.new(1, 1, 1)),
 			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 0),
-				NumberSequenceKeypoint.new(1, 1),
+				NumberSequenceKeypoint.new(0, 0), -- Left: opaque white
+				NumberSequenceKeypoint.new(1, 1), -- Right: transparent (shows pure hue)
 			}),
 		})
 
@@ -1200,8 +1201,8 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			Rotation = 90,
 			Color = ColorSequence.new(Color3.new(0, 0, 0)),
 			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 1),
-				NumberSequenceKeypoint.new(1, 0),
+				NumberSequenceKeypoint.new(0, 1), -- Top: transparent (bright)
+				NumberSequenceKeypoint.new(1, 0), -- Bottom: opaque black
 			}),
 		})
 
