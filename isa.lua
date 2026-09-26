@@ -381,6 +381,8 @@ function Window:Tab(name, icon)
 	tab.Window = window
 	tab.Name   = name
 	tab._order = 0
+	tab.SubTabs = {}
+	tab.ActiveSubTab = nil
 
 	local button = new("TextButton", {
 		Parent = window.Sidebar,
@@ -442,8 +444,17 @@ function Window:Tab(name, icon)
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
 
-	local page = new("ScrollingFrame", {
+	-- Page container (holds direct scroll + sub-tab bar + sub pages)
+	local pageContainer = new("Frame", {
 		Parent = window.Content,
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Visible = false,
+	})
+
+	-- Direct sections scroll (used when no sub-tabs exist)
+	local directScroll = new("ScrollingFrame", {
+		Parent = pageContainer,
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
@@ -453,19 +464,46 @@ function Window:Tab(name, icon)
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		ScrollingDirection = Enum.ScrollingDirection.Y,
-		Visible = false,
 	})
 	new("UIListLayout", {
-		Parent = page,
+		Parent = directScroll,
 		Padding = UDim.new(0, 10),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	})
-	padding(page, 4, 12, 16, 12)
+	padding(directScroll, 4, 12, 16, 12)
 
-	tab.Button    = button
-	tab.Label     = label
-	tab.Indicator = indicator
-	tab.Page      = page
+	-- Sub-tab bar
+	local subBar = new("Frame", {
+		Parent = pageContainer,
+		Size = UDim2.new(1, 0, 0, 34),
+		BackgroundTransparency = 1,
+		Visible = false,
+	})
+	new("UIListLayout", {
+		Parent = subBar,
+		Padding = UDim.new(0, 6),
+		FillDirection = Enum.FillDirection.Horizontal,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+	})
+	padding(subBar, 4, 14, 4, 14)
+
+	-- Sub-tab pages container
+	local subPages = new("Frame", {
+		Parent = pageContainer,
+		Position = UDim2.fromOffset(0, 34),
+		Size = UDim2.new(1, 0, 1, -34),
+		BackgroundTransparency = 1,
+		Visible = false,
+	})
+
+	tab.Button      = button
+	tab.Label       = label
+	tab.Indicator   = indicator
+	tab.Page        = pageContainer
+	tab.DirectScroll = directScroll
+	tab.SubBar      = subBar
+	tab.SubPages    = subPages
 
 	button.MouseEnter:Connect(function()
 		if window.ActiveTab ~= tab then
@@ -521,6 +559,9 @@ function Window:SelectTab(name)
 	return nil
 end
 
+--=====================================================================
+-- SECTION (shared factory)
+--=====================================================================
 local Section = {}
 Section.__index = function(tbl, key)
 	local method = rawget(Section, key)
@@ -534,42 +575,38 @@ Section.__index = function(tbl, key)
 	return nil
 end
 
-function Tab:Section(name, _side)
+local function makeSection(page, owner, sname, order, window)
 	local theme = Library.Theme
-
-	self._order = (self._order or 0) + 1
-
 	local section = setmetatable({}, Section)
-	section.Tab      = self
-	section.Window   = self.Window
-	section.Elements = {}
-	section._order   = 0
+	section.Page    = page
+	section.Window  = window
+	section.Tab     = owner
+	section._order  = order or 0
 
 	local frame = new("Frame", {
-		Parent = self.Page,
+		Parent = page,
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = theme.Surface,
 		BorderSizePixel = 0,
-		LayoutOrder = self._order,
+		LayoutOrder = section._order,
 	})
 	corner(frame, 10)
 	stroke(frame, theme.Outline, 1, 0.3)
 	padding(frame, 10, 12, 12, 12)
-
-	local layout = new("UIListLayout", {
+	new("UIListLayout", {
 		Parent = frame,
 		Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	})
 
-	if name then
+	if sname then
 		new("TextLabel", {
 			Parent = frame,
 			Size = UDim2.new(1, 0, 0, 18),
 			BackgroundTransparency = 1,
 			Font = theme.FontBold,
-			Text = name,
+			Text = sname,
 			TextColor3 = theme.Text,
 			TextSize = 13,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -592,10 +629,129 @@ function Tab:Section(name, _side)
 
 	section.Instance  = frame
 	section.Container = container
-	section.Layout    = layout
 
 	return section
 end
+
+function Tab:Section(name, _side)
+	if #self.SubTabs > 0 and self.ActiveSubTab then
+		return self.ActiveSubTab:Section(name)
+	end
+	self._order = (self._order or 0) + 1
+	return makeSection(self.DirectScroll, self, name, self._order, self.Window)
+end
+
+--=====================================================================
+-- SUB-TAB
+--=====================================================================
+function Tab:SubTab(name)
+	name = name or "Sub"
+	local theme = Library.Theme
+
+	if #self.SubTabs == 0 then
+		self.DirectScroll.Visible = false
+		self.SubBar.Visible = true
+		self.SubPages.Visible = true
+	end
+
+	local sub = {}
+	sub.Tab     = self
+	sub.Window  = self.Window
+	sub.Name    = name
+	sub._order  = 0
+
+	local btn = new("TextButton", {
+		Parent = self.SubBar,
+		Size = UDim2.new(0, 96, 0, 24),
+		BackgroundColor3 = theme.Surface,
+		BackgroundTransparency = 0.5,
+		Text = name,
+		Font = theme.FontMedium,
+		TextSize = 12,
+		TextColor3 = theme.TextDim,
+		AutoButtonColor = false,
+		LayoutOrder = #self.SubTabs + 1,
+	})
+	corner(btn, 6)
+
+	local page = new("ScrollingFrame", {
+		Parent = self.SubPages,
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = theme.Outline,
+		ScrollBarImageTransparency = 0.4,
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		Visible = false,
+	})
+	new("UIListLayout", {
+		Parent = page,
+		Padding = UDim.new(0, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	})
+	padding(page, 4, 12, 16, 12)
+
+	sub.Button = btn
+	sub.Page   = page
+
+	function sub:Section(sname, _side)
+		self._order = (self._order or 0) + 1
+		return makeSection(self.Page, self, sname, self._order, self.Window)
+	end
+
+	function sub:SetActive(active)
+		self.Page.Visible = active
+		if active then
+			tween(self.Button, {
+				BackgroundColor3 = theme.SurfaceAlt,
+				BackgroundTransparency = 0.1,
+				TextColor3 = theme.Text,
+			}, 0.12)
+		else
+			tween(self.Button, {
+				BackgroundColor3 = theme.Surface,
+				BackgroundTransparency = 0.5,
+				TextColor3 = theme.TextDim,
+			}, 0.12)
+		end
+	end
+
+	function sub:Select()
+		if self.Tab.ActiveSubTab == self then return end
+		self.Tab.ActiveSubTab = self
+		for _, s in ipairs(self.Tab.SubTabs) do
+			s:SetActive(s == self)
+		end
+	end
+
+	btn.MouseButton1Click:Connect(function()
+		sub:Select()
+	end)
+	btn.MouseEnter:Connect(function()
+		if self.ActiveSubTab ~= sub then
+			tween(btn, { BackgroundTransparency = 0.3, TextColor3 = theme.Text }, 0.1)
+		end
+	end)
+	btn.MouseLeave:Connect(function()
+		if self.ActiveSubTab ~= sub then
+			tween(btn, { BackgroundTransparency = 0.5, TextColor3 = theme.TextDim }, 0.1)
+		end
+	end)
+
+	table.insert(self.SubTabs, sub)
+	if not self.ActiveSubTab then
+		sub:Select()
+	end
+
+	return sub
+end
+
+--=====================================================================
+-- BUILT-IN ELEMENTS
+--=====================================================================
 
 Library:RegisterElement("Toggle", function(section, config)
 	config = config or {}
@@ -1191,6 +1347,7 @@ Library:RegisterElement("Keybind", function(section, config)
 	return finishElement(el, config)
 end)
 
+--== ColorPicker (fixed) =============================================
 Library:RegisterElement("ColorPicker", function(section, config)
 	config = config or {}
 	local theme = Library.Theme
@@ -1264,6 +1421,8 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			ZIndex = 1,
 		})
 		corner(svSquare, 6)
+
+		-- White → transparent horizontal gradient (affects svSquare's own bg)
 		new("UIGradient", {
 			Parent = svSquare,
 			Color = ColorSequence.new(Color3.new(1, 1, 1)),
@@ -1271,9 +1430,9 @@ Library:RegisterElement("ColorPicker", function(section, config)
 				NumberSequenceKeypoint.new(0, 0),
 				NumberSequenceKeypoint.new(1, 1),
 			}),
-			ZIndex = 2,
 		})
 
+		-- Black overlay: transparent at top → opaque black at bottom
 		local blackOverlay = new("Frame", {
 			Parent = svSquare,
 			Size = UDim2.fromScale(1, 1),
@@ -1426,6 +1585,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			end
 		end)
 
+		-- Outside-click closes, without a blocker frame
 		local c3 = UserInputService.InputBegan:Connect(function(input, gpe)
 			if not opened or gpe then return end
 			if input.UserInputType ~= Enum.UserInputType.MouseButton1
@@ -1437,15 +1597,17 @@ Library:RegisterElement("ColorPicker", function(section, config)
 
 				local p = popup.AbsolutePosition
 				local sz = popup.AbsoluteSize
-				local onPopup = pos.X >= p.X and pos.X <= p.X + sz.X
-					and pos.Y >= p.Y and pos.Y <= p.Y + sz.Y
-				if onPopup then return end
+				if pos.X >= p.X and pos.X <= p.X + sz.X
+					and pos.Y >= p.Y and pos.Y <= p.Y + sz.Y then
+					return
+				end
 
 				local sp = swatch.AbsolutePosition
 				local ss = swatch.AbsoluteSize
-				local onSwatch = pos.X >= sp.X and pos.X <= sp.X + ss.X
-					and pos.Y >= sp.Y and pos.Y <= sp.Y + ss.Y
-				if onSwatch then return end
+				if pos.X >= sp.X and pos.X <= sp.X + ss.X
+					and pos.Y >= sp.Y and pos.Y <= sp.Y + ss.Y then
+					return
+				end
 
 				el:SetOpen(false)
 			end)
@@ -1458,18 +1620,20 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		if not built then build() end
 		opened = state
 		if opened then
-			local pos = swatch.AbsolutePosition
+			local pos  = swatch.AbsolutePosition
 			local size = swatch.AbsoluteSize
-			local popupSize = popup.AbsoluteSize
+			local pw = popup.Size.X.Offset
+			local ph = popup.Size.Y.Offset
 
-			local x = pos.X + size.X - popupSize.X
+			local x = pos.X + size.X - pw
 			local y = pos.Y + size.Y + 6
 
 			local viewport = workspace.CurrentCamera.ViewportSize
-			x = math.clamp(x, 8, viewport.X - popupSize.X - 8)
-			if y + popupSize.Y > viewport.Y - 8 then
-				y = pos.Y - popupSize.Y - 6
+			x = math.clamp(x, 8, math.max(8, viewport.X - pw - 8))
+			if y + ph > viewport.Y - 8 then
+				y = pos.Y - ph - 6
 			end
+			if y < 8 then y = 8 end
 
 			popup.Position = UDim2.fromOffset(x, y)
 			popup.Visible = true
@@ -1589,6 +1753,9 @@ Library:RegisterElement("Space", function(section, config)
 	return finishElement(el, config)
 end)
 
+--=====================================================================
+-- NOTIFICATIONS
+--=====================================================================
 local TYPE_COLORS = {
 	Info    = function() return Library.Theme.Accent end,
 	Success = function() return Library.Theme.Good end,
@@ -1705,6 +1872,9 @@ function Library:Notify(config)
 	return outer
 end
 
+--=====================================================================
+-- SERIALIZATION + LOAD
+--=====================================================================
 function Library:Serialize(value)
 	local t = typeof(value)
 	if t == "Color3" then
@@ -1759,7 +1929,7 @@ function Library:LoadConfig(filename)
 end
 
 --=====================================================================
--- CONFIG MANAGER (filesystem)
+-- CONFIG MANAGER
 --=====================================================================
 Library.ConfigFolder = "prism_configs"
 Library.AutoLoadFile = "prism_configs/.autoload"
@@ -1769,294 +1939,4 @@ local function hasFileAPI()
 		and typeof(readfile) == "function"
 		and typeof(isfile) == "function"
 		and typeof(delfile) == "function"
-		and typeof(isfolder) == "function"
-		and typeof(makefolder) == "function"
-		and typeof(listfiles) == "function"
-end
-
-local function ensureFolder()
-	if not hasFileAPI() then return false end
-	if not isfolder(Library.ConfigFolder) then
-		makefolder(Library.ConfigFolder)
-	end
-	return true
-end
-
-function Library:ListConfigs()
-	if not ensureFolder() then return {} end
-	local out = {}
-	local ok, files = pcall(listfiles, Library.ConfigFolder)
-	if not ok or type(files) ~= "table" then return out end
-	for _, path in ipairs(files) do
-		local name = path:match("([^/\\]+)%.cfg$")
-		if name and name ~= "" and name:sub(1, 1) ~= "." then
-			table.insert(out, name)
-		end
-	end
-	table.sort(out)
-	return out
-end
-
-function Library:ConfigExists(name)
-	if not hasFileAPI() or not name or name == "" then return false end
-	return isfile(Library.ConfigFolder .. "/" .. name .. ".cfg")
-end
-
-function Library:SaveConfigNamed(name)
-	if not hasFileAPI() then return false, "no file API" end
-	if not name or name == "" then return false, "empty name" end
-	ensureFolder()
-
-	local data = {}
-	for flag, value in pairs(Library.Flags) do
-		data[flag] = value
-	end
-	local str = "return " .. Library:Serialize(data)
-
-	local ok, err = pcall(writefile, Library.ConfigFolder .. "/" .. name .. ".cfg", str)
-	if not ok then return false, err end
-	return true
-end
-
-function Library:LoadConfigNamed(name)
-	if not name or name == "" then return false end
-	if not Library:ConfigExists(name) then return false end
-	return Library:LoadConfig(Library.ConfigFolder .. "/" .. name .. ".cfg")
-end
-
-function Library:DeleteConfig(name)
-	if not hasFileAPI() or not name or name == "" then return false end
-	local path = Library.ConfigFolder .. "/" .. name .. ".cfg"
-	if not isfile(path) then return false end
-	local ok = pcall(delfile, path)
-	return ok
-end
-
-function Library:GetAutoLoad()
-	if not hasFileAPI() then return nil end
-	if not isfile(Library.AutoLoadFile) then return nil end
-	local ok, name = pcall(readfile, Library.AutoLoadFile)
-	if not ok or type(name) ~= "string" then return nil end
-	name = name:gsub("%s+", "")
-	if name == "" then return nil end
-	return name
-end
-
-function Library:SetAutoLoad(name)
-	if not hasFileAPI() then return end
-	ensureFolder()
-	if not name or name == "" then
-		if isfile(Library.AutoLoadFile) then
-			pcall(delfile, Library.AutoLoadFile)
-		end
-	else
-		pcall(writefile, Library.AutoLoadFile, name)
-	end
-end
-
-function Library:ApplyAutoLoad()
-	local name = Library:GetAutoLoad()
-	if name and Library:ConfigExists(name) then
-		return Library:LoadConfigNamed(name)
-	end
-	return false
-end
-
---=====================================================================
--- CONFIG TAB BUILDER
---=====================================================================
-function Library:BuildConfigTab(tab)
-	local theme = Library.Theme
-	local fileAPI = hasFileAPI()
-
-	local function configOptions()
-		local opts = { "None" }
-		for _, name in ipairs(Library:ListConfigs()) do
-			table.insert(opts, name)
-		end
-		return opts
-	end
-
-	local refreshAll
-
-	local secSave = tab:Section("Save Configuration")
-
-	local nameInput = secSave:Input({
-		Name        = "Config name",
-		Placeholder = "my_config",
-	})
-
-	secSave:Button({
-		Name = "Save",
-		Callback = function()
-			local name = tostring(nameInput:Get() or "")
-			name = name:gsub("%s+", "_"):gsub("[^%w_%-%.]", "")
-			if name == "" then
-				Library:Notify({ Title = "Save failed", Content = "Enter a name first.", Type = "Warning" })
-				return
-			end
-			local ok, err = Library:SaveConfigNamed(name)
-			if ok then
-				Library:Notify({ Title = "Saved", Content = "Config '" .. name .. "' saved.", Type = "Success" })
-				if refreshAll then refreshAll() end
-			else
-				Library:Notify({ Title = "Save failed", Content = tostring(err or "unknown"), Type = "Error" })
-			end
-		end,
-	})
-
-	local secLoad = tab:Section("Load Configuration")
-
-	local loadDropdown = secLoad:Dropdown({
-		Name       = "Select config",
-		Options    = configOptions(),
-		Default    = "None",
-		MaxVisible = 5,
-	})
-
-	secLoad:Button({
-		Name = "Load Selected",
-		Callback = function()
-			local name = loadDropdown:Get()
-			if not name or name == "None" then
-				Library:Notify({ Title = "Load failed", Content = "No config selected.", Type = "Warning" })
-				return
-			end
-			if Library:LoadConfigNamed(name) then
-				Library:Notify({ Title = "Loaded", Content = "Config '" .. name .. "' applied.", Type = "Success" })
-			else
-				Library:Notify({ Title = "Load failed", Content = "Could not read '" .. name .. "'.", Type = "Error" })
-			end
-		end,
-	})
-
-	local secAuto = tab:Section("Auto Load on Startup")
-
-	local autoCurrent = Library:GetAutoLoad()
-	if autoCurrent and not Library:ConfigExists(autoCurrent) then
-		autoCurrent = nil
-		Library:SetAutoLoad(nil)
-	end
-
-	local autoDropdown = secAuto:Dropdown({
-		Name       = "Auto-load config",
-		Options    = configOptions(),
-		Default    = autoCurrent or "None",
-		MaxVisible = 5,
-		OnChanged  = function(value)
-			if value == "None" then
-				Library:SetAutoLoad(nil)
-				Library:Notify({ Title = "Auto-load", Content = "Disabled.", Type = "Info" })
-			else
-				Library:SetAutoLoad(value)
-				Library:Notify({ Title = "Auto-load", Content = "Will load '" .. value .. "' on startup.", Type = "Success" })
-			end
-		end,
-	})
-
-	secAuto:Paragraph({
-		Text = "The selected config is applied automatically the next time the script runs. Call Library:ApplyAutoLoad() after building your UI.",
-	})
-
-	local secManage = tab:Section("Manage Configs")
-
-	local deleteDropdown = secManage:Dropdown({
-		Name       = "Select to delete",
-		Options    = configOptions(),
-		Default    = "None",
-		MaxVisible = 5,
-	})
-
-	local confirming = false
-
-	secManage:Button({
-		Name = "Delete Selected",
-		Callback = function()
-			local name = deleteDropdown:Get()
-			if not name or name == "None" then
-				Library:Notify({ Title = "Delete", Content = "Select a config first.", Type = "Warning" })
-				return
-			end
-			if not confirming then
-				confirming = true
-				Library:Notify({ Title = "Confirm delete", Content = "Click again to delete '" .. name .. "'.", Type = "Warning", Duration = 3 })
-				task.delay(3, function() confirming = false end)
-				return
-			end
-			confirming = false
-			if Library:DeleteConfig(name) then
-				if Library:GetAutoLoad() == name then
-					Library:SetAutoLoad(nil)
-				end
-				Library:Notify({ Title = "Deleted", Content = "'" .. name .. "' removed.", Type = "Success" })
-				if refreshAll then refreshAll() end
-			else
-				Library:Notify({ Title = "Delete failed", Content = "File not found.", Type = "Error" })
-			end
-		end,
-	})
-
-	secManage:Button({
-		Name = "Refresh list",
-		Callback = function()
-			if refreshAll then refreshAll() end
-			Library:Notify({ Title = "Refreshed", Content = "Config list updated.", Type = "Info", Duration = 2 })
-		end,
-	})
-
-	refreshAll = function()
-		local opts = configOptions()
-		loadDropdown:SetOptions(opts)
-		deleteDropdown:SetOptions(opts)
-		autoDropdown:SetOptions(opts)
-	end
-
-	if not fileAPI then
-		tab:Section("Warning"):Paragraph({
-			Text = "Your executor does not expose file functions (writefile, readfile, etc.). Configs will not persist.",
-			Color = theme.Bad,
-		})
-	end
-
-	return { Refresh = refreshAll }
-end
-
---=====================================================================
--- UTILITIES
---=====================================================================
-function Library:GetFlag(flag)
-	return Library.Flags[flag]
-end
-
-function Library:SetFlag(flag, value)
-	local el = Library.Elements[flag]
-	if el and el.Set then
-		el:Set(value)
-	else
-		Library.Flags[flag] = value
-	end
-end
-
-function Library:OnFlagChanged(flag, callback)
-	local el = Library.Elements[flag]
-	if el then
-		el:OnChanged(callback)
-	else
-		return nil
-	end
-end
-
-function Library:Unload()
-	for _, w in ipairs(table.clone(Library.Windows)) do
-		w:Destroy()
-	end
-	Library.Windows = {}
-	Library.Flags = {}
-	Library.Elements = {}
-	if Library._notifyGui then
-		Library._notifyGui:Destroy()
-		Library._notifyGui = nil
-	end
-end
-
-return Library
+		and typeof(isf
