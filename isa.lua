@@ -36,6 +36,7 @@ Library._themed = setmetatable({}, { __mode = "k" })
 
 -- Global toggle keybind (changeable from the config tab)
 Library.ToggleKeybind = "RightShift"
+Library._keybindListening = false
 
 local function new(class, props)
 	local inst = Instance.new(class)
@@ -1083,22 +1084,26 @@ Library:RegisterElement("Keybind", function(section, config)
 
 	btn.MouseButton1Click:Connect(function()
 		listening = true
+		Library._keybindListening = true
 		btn.Text = "..."
 		btn.TextColor3 = theme.Accent
 	end)
 
 	local conn = UserInputService.InputBegan:Connect(function(input, gpe)
-		if not listening or gpe then return end
+		if not listening then return end
 		local name
 		if input.UserInputType == Enum.UserInputType.Keyboard then
+			if UserInputService:GetFocusedTextBox() then return end
 			name = input.KeyCode.Name
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.MouseButton2
 			or input.UserInputType == Enum.UserInputType.MouseButton3 then
+			if gpe then return end
 			name = input.UserInputType.Name
 		end
 		if name then
 			listening = false
+			Library._keybindListening = false
 			btn.TextColor3 = theme.TextDim
 			el:Set(name)
 		end
@@ -1569,17 +1574,24 @@ function Library:ToggleWindows()
 	end
 end
 
--- Global hotkey listener (respects gameProcessedEvent so it won't fire while typing)
+-- Global hotkey listener
+-- For keyboard: ignore gpe (right shift is shift lock and would set gpe=true),
+-- but still skip while a textbox is focused.
+-- For mouse buttons: keep the gpe check so clicking UI doesn't toggle the window.
 UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
+	if Library._keybindListening then return end
+
 	local name
 	if input.UserInputType == Enum.UserInputType.Keyboard then
+		if UserInputService:GetFocusedTextBox() then return end
 		name = input.KeyCode.Name
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.MouseButton2
 		or input.UserInputType == Enum.UserInputType.MouseButton3 then
+		if gpe then return end
 		name = input.UserInputType.Name
 	end
+
 	if name and name == Library.ToggleKeybind then
 		Library:ToggleWindows()
 	end
