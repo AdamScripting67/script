@@ -1214,7 +1214,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 	corner(swatch, 5)
 	stroke(swatch, theme.Outline, 1)
 
-	local popup, svSquare, svMarker, hueBar, hueMarker, preview, hexBox, blocker
+	local popup, svSquare, svMarker, hueBar, hueMarker, preview, hexBox
 	local built = false
 	local opened = false
 
@@ -1244,22 +1244,13 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		built = true
 		local gui = section.Window.Gui
 
-		blocker = new("TextButton", {
-			Parent = gui,
-			Size = UDim2.fromScale(1, 1),
-			BackgroundTransparency = 1,
-			Text = "",
-			Visible = false,
-			ZIndex = 900,
-		})
-
 		popup = new("Frame", {
 			Parent = gui,
 			Size = UDim2.fromOffset(216, 194),
 			BackgroundColor3 = theme.Surface,
 			BorderSizePixel = 0,
 			Visible = false,
-			ZIndex = 901,
+			ZIndex = 950,
 		})
 		corner(popup, 8)
 		stroke(popup, theme.Outline, 1)
@@ -1435,11 +1426,32 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			end
 		end)
 
-		el._conns = { c1, c2 }
+		local c3 = UserInputService.InputBegan:Connect(function(input, gpe)
+			if not opened or gpe then return end
+			if input.UserInputType ~= Enum.UserInputType.MouseButton1
+				and input.UserInputType ~= Enum.UserInputType.Touch then return end
 
-		blocker.MouseButton1Click:Connect(function()
-			el:SetOpen(false)
+			task.defer(function()
+				if not opened then return end
+				local pos = input.Position
+
+				local p = popup.AbsolutePosition
+				local sz = popup.AbsoluteSize
+				local onPopup = pos.X >= p.X and pos.X <= p.X + sz.X
+					and pos.Y >= p.Y and pos.Y <= p.Y + sz.Y
+				if onPopup then return end
+
+				local sp = swatch.AbsolutePosition
+				local ss = swatch.AbsoluteSize
+				local onSwatch = pos.X >= sp.X and pos.X <= sp.X + ss.X
+					and pos.Y >= sp.Y and pos.Y <= sp.Y + ss.Y
+				if onSwatch then return end
+
+				el:SetOpen(false)
+			end)
 		end)
+
+		el._conns = { c1, c2, c3 }
 	end
 
 	function el:SetOpen(state)
@@ -1461,10 +1473,8 @@ Library:RegisterElement("ColorPicker", function(section, config)
 
 			popup.Position = UDim2.fromOffset(x, y)
 			popup.Visible = true
-			blocker.Visible = true
 		else
 			popup.Visible = false
-			blocker.Visible = false
 		end
 	end
 
@@ -1718,20 +1728,6 @@ function Library:Serialize(value)
 	return "nil"
 end
 
-function Library:SaveConfig(filename)
-	local data = {}
-	for flag, value in pairs(Library.Flags) do
-		data[flag] = value
-	end
-	local str = "return " .. Library:Serialize(data)
-
-	if typeof(writefile) == "function" then
-		writefile(filename or "prism_config.txt", str)
-		return true
-	end
-	return str
-end
-
 function Library:LoadConfig(filename)
 	local str
 	if typeof(readfile) == "function" then
@@ -1760,41 +1756,6 @@ function Library:LoadConfig(filename)
 		end
 	end
 	return true
-end
-
-function Library:GetFlag(flag)
-	return Library.Flags[flag]
-end
-
-function Library:SetFlag(flag, value)
-	local el = Library.Elements[flag]
-	if el and el.Set then
-		el:Set(value)
-	else
-		Library.Flags[flag] = value
-	end
-end
-
-function Library:OnFlagChanged(flag, callback)
-	local el = Library.Elements[flag]
-	if el then
-		el:OnChanged(callback)
-	else
-		return nil
-	end
-end
-
-function Library:Unload()
-	for _, w in ipairs(table.clone(Library.Windows)) do
-		w:Destroy()
-	end
-	Library.Windows = {}
-	Library.Flags = {}
-	Library.Elements = {}
-	if Library._notifyGui then
-		Library._notifyGui:Destroy()
-		Library._notifyGui = nil
-	end
 end
 
 --=====================================================================
@@ -1918,7 +1879,6 @@ function Library:BuildConfigTab(tab)
 
 	local refreshAll
 
-	-- ============ SAVE ==========================================
 	local secSave = tab:Section("Save Configuration")
 
 	local nameInput = secSave:Input({
@@ -1945,7 +1905,6 @@ function Library:BuildConfigTab(tab)
 		end,
 	})
 
-	-- ============ LOAD ==========================================
 	local secLoad = tab:Section("Load Configuration")
 
 	local loadDropdown = secLoad:Dropdown({
@@ -1971,10 +1930,8 @@ function Library:BuildConfigTab(tab)
 		end,
 	})
 
-	-- ============ AUTO LOAD =====================================
 	local secAuto = tab:Section("Auto Load on Startup")
 
-	-- Clean stale autoload entry
 	local autoCurrent = Library:GetAutoLoad()
 	if autoCurrent and not Library:ConfigExists(autoCurrent) then
 		autoCurrent = nil
@@ -2001,7 +1958,6 @@ function Library:BuildConfigTab(tab)
 		Text = "The selected config is applied automatically the next time the script runs. Call Library:ApplyAutoLoad() after building your UI.",
 	})
 
-	-- ============ DELETE ========================================
 	local secManage = tab:Section("Manage Configs")
 
 	local deleteDropdown = secManage:Dropdown({
@@ -2048,7 +2004,6 @@ function Library:BuildConfigTab(tab)
 		end,
 	})
 
-	-- ============ REFRESH HELPER ================================
 	refreshAll = function()
 		local opts = configOptions()
 		loadDropdown:SetOptions(opts)
@@ -2064,6 +2019,44 @@ function Library:BuildConfigTab(tab)
 	end
 
 	return { Refresh = refreshAll }
+end
+
+--=====================================================================
+-- UTILITIES
+--=====================================================================
+function Library:GetFlag(flag)
+	return Library.Flags[flag]
+end
+
+function Library:SetFlag(flag, value)
+	local el = Library.Elements[flag]
+	if el and el.Set then
+		el:Set(value)
+	else
+		Library.Flags[flag] = value
+	end
+end
+
+function Library:OnFlagChanged(flag, callback)
+	local el = Library.Elements[flag]
+	if el then
+		el:OnChanged(callback)
+	else
+		return nil
+	end
+end
+
+function Library:Unload()
+	for _, w in ipairs(table.clone(Library.Windows)) do
+		w:Destroy()
+	end
+	Library.Windows = {}
+	Library.Flags = {}
+	Library.Elements = {}
+	if Library._notifyGui then
+		Library._notifyGui:Destroy()
+		Library._notifyGui = nil
+	end
 end
 
 return Library
