@@ -27,12 +27,38 @@ Library.Theme = {
 	Radius      = 8,
 }
 
+-- Snapshot of default colors so a "reset" is possible
+Library.DefaultTheme = {}
+for k, v in pairs(Library.Theme) do Library.DefaultTheme[k] = v end
+
+-- Registry of instances whose properties follow the theme
+Library._themed = setmetatable({}, { __mode = "k" })
+
+-- Global toggle keybind (changeable from the config tab)
+Library.ToggleKeybind = "RightShift"
+
 local function new(class, props)
 	local inst = Instance.new(class)
 	local parent
+	local themed
 	for k, v in pairs(props or {}) do
-		if k == "Parent" then parent = v else inst[k] = v end
+		if k == "Parent" then
+			parent = v
+		else
+			inst[k] = v
+			-- Auto-detect theme colors so RefreshTheme can repaint live
+			if typeof(v) == "Color3" then
+				for tk, tv in pairs(Library.Theme) do
+					if typeof(tv) == "Color3" and tv == v then
+						if not themed then themed = {} end
+						table.insert(themed, { Prop = k, Key = tk })
+						break
+					end
+				end
+			end
+		end
 	end
+	if themed then Library._themed[inst] = themed end
 	if parent then inst.Parent = parent end
 	return inst
 end
@@ -178,6 +204,7 @@ function Library:CreateWindow(config)
 	corner(main, 12)
 	stroke(main, theme.Outline, 1)
 	self.Instance = main
+	self.MainFrame = main
 
 	local topbar = new("Frame", {
 		Name = "Topbar", Parent = main,
@@ -217,7 +244,6 @@ function Library:CreateWindow(config)
 		return b, colorOnHover
 	end
 
-	-- Minimize button (drawn as a small horizontal bar)
 	local minimizeBtn, minHover = makeTopButton(-46, theme.SurfaceHigh)
 	local minBar = new("Frame", {
 		Parent = minimizeBtn,
@@ -229,7 +255,6 @@ function Library:CreateWindow(config)
 	})
 	corner(minBar, 1)
 
-	-- Close button (drawn as an X using two rotated bars)
 	local closeBtn, closeHover = makeTopButton(-12, theme.Bad)
 	local xLine1 = new("Frame", {
 		Parent = closeBtn,
@@ -252,7 +277,6 @@ function Library:CreateWindow(config)
 	})
 	corner(xLine2, 1)
 
-	-- Hover states
 	minimizeBtn.MouseEnter:Connect(function()
 		tween(minimizeBtn, { BackgroundColor3 = theme.SurfaceHigh }, 0.12)
 		minBar.BackgroundColor3 = theme.Text
@@ -292,7 +316,6 @@ function Library:CreateWindow(config)
 
 	self.Sidebar = sidebarList
 	self.Content = content
-	self.MainFrame = main
 
 	local dragging, dragStart, startPos
 	topbar.InputBegan:Connect(function(input)
@@ -1504,6 +1527,59 @@ function Library:Notify(config)
 end
 
 --=====================================================================
+-- THEME MANAGEMENT
+--=====================================================================
+function Library:RefreshTheme()
+	for inst, entries in pairs(Library._themed) do
+		if typeof(inst) == "Instance" and inst.Parent then
+			for _, e in ipairs(entries) do
+				local v = Library.Theme[e.Key]
+				if v ~= nil then inst[e.Prop] = v end
+			end
+		end
+	end
+end
+
+function Library:SetThemeColor(key, color)
+	if Library.Theme[key] ~= nil then
+		Library.Theme[key] = color
+		self:RefreshTheme()
+	end
+end
+
+function Library:ResetTheme()
+	for k, v in pairs(Library.DefaultTheme) do
+		Library.Theme[k] = v
+	end
+	self:RefreshTheme()
+end
+
+-- Toggle all windows visible / hidden
+function Library:ToggleWindows()
+	for _, w in ipairs(Library.Windows) do
+		if w.MainFrame then
+			w.MainFrame.Visible = not w.MainFrame.Visible
+		end
+	end
+end
+
+-- Global hotkey listener (respects gameProcessedEvent so it won't fire while typing)
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	local name
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		name = input.KeyCode.Name
+	elseif input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.MouseButton2
+		or input.UserInputType == Enum.UserInputType.MouseButton3 then
+		name = input.UserInputType.Name
+	end
+	if name and name == Library.ToggleKeybind then
+		Library:ToggleWindows()
+	end
+end)
+
+--=====================================================================
 -- SERIALIZATION + CONFIG MANAGER
 --=====================================================================
 function Library:Serialize(value)
@@ -1543,14 +1619,31 @@ function Library:LoadConfig(filename)
 	local ok, data = pcall(chunk)
 	if not ok or type(data) ~= "table" then return false end
 	for flag, value in pairs(data) do
+		Library.Flags[flag] = value
 		local el = Library.Elements[flag]
 		if el and el.Set then
 			pcall(function() el:Set(value, true) end)
-		else
-			Library.Flags[flag] = value
 		end
 	end
+	-- Re-apply theme + toggle keybind (silent Sets don't fire callbacks)
+	Library:_ApplySpecialFlags()
 	return true
+end
+
+function Library:_ApplySpecialFlags()
+	for key, val in pairs(Library.Theme) do
+		if typeof(val) == "Color3" then
+			local v = Library.Flags["__theme_" .. key]
+			if typeof(v) == "Color3" then
+				Library.Theme[key] = v
+			end
+		end
+	end
+	local tk = Library.Flags["__ui_toggle_key"]
+	if typeof(tk) == "string" and tk ~= "" then
+		Library.ToggleKeybind = tk
+	end
+	Library:RefreshTheme()
 end
 
 Library.ConfigFolder = "prism_configs"
@@ -1643,10 +1736,75 @@ function Library:ApplyAutoLoad()
 	return false
 end
 
+--=====================================================================
+-- CONFIG TAB
+--=====================================================================
 function Library:BuildConfigTab(tab)
 	local theme = Library.Theme
 	local fileAPI = hasFileAPI()
 
+	---------------------------------------------------------------
+	-- THEME CUSTOMIZATION
+	---------------------------------------------------------------
+	local themeKeys = {
+		"Accent", "Background", "Surface", "SurfaceAlt",
+		"SurfaceHigh", "Outline", "Text", "TextDim",
+	}
+
+	local secTheme = tab:Section("UI Theme")
+	secTheme:Paragraph({
+		Text = "Click a swatch to pick a color. Changes apply live.",
+	})
+
+	for _, key in ipairs(themeKeys) do
+		secTheme:ColorPicker({
+			Name = key,
+			Flag = "__theme_" .. key,
+			Default = Library.Theme[key],
+			OnChanged = function(color)
+				Library.Theme[key] = color
+				Library:RefreshTheme()
+			end,
+		})
+	end
+
+	secTheme:Button({
+		Name = "Reset Theme to Default",
+		Callback = function()
+			for _, key in ipairs(themeKeys) do
+				local el = Library.Elements["__theme_" .. key]
+				if el then
+					el:Set(Library.DefaultTheme[key]) -- fires OnChanged -> updates Theme + refresh
+				else
+					Library.Theme[key] = Library.DefaultTheme[key]
+				end
+			end
+			Library:RefreshTheme()
+			Library:Notify({ Title = "Theme", Content = "Default theme restored.", Type = "Info" })
+		end,
+	})
+
+	---------------------------------------------------------------
+	-- UI HOTKEY
+	---------------------------------------------------------------
+	local secHotkey = tab:Section("UI Hotkey")
+	secHotkey:Keybind({
+		Name = "Toggle UI Keybind",
+		Flag = "__ui_toggle_key",
+		Default = Library.ToggleKeybind,
+		OnChanged = function(key)
+			if typeof(key) == "string" and key ~= "" then
+				Library.ToggleKeybind = key
+			end
+		end,
+	})
+	secHotkey:Paragraph({
+		Text = "Press this key to show or hide the UI. Default: RightShift.",
+	})
+
+	---------------------------------------------------------------
+	-- SAVE / LOAD / AUTO / MANAGE
+	---------------------------------------------------------------
 	local function configOptions()
 		local opts = { "None" }
 		for _, name in ipairs(Library:ListConfigs()) do table.insert(opts, name) end
@@ -1800,6 +1958,7 @@ function Library:Unload()
 	Library.Windows = {}
 	Library.Flags = {}
 	Library.Elements = {}
+	Library._themed = setmetatable({}, { __mode = "k" })
 	if Library._notifyGui then
 		Library._notifyGui:Destroy()
 		Library._notifyGui = nil
