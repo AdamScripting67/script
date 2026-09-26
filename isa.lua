@@ -320,6 +320,68 @@ function Library:CreateWindow(config)
 		end
 	end))
 
+	-- RESIZE FEATURE
+	local resizeHandle = new("TextButton", {
+		Name = "ResizeHandle",
+		Parent = main,
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, 0, 1, 0),
+		Size = UDim2.fromOffset(16, 16),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+	})
+	
+	-- Visual indicator for resize handle
+	local resizeIndicator1 = new("Frame", {
+		Parent = resizeHandle,
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -4, 1, -4),
+		Size = UDim2.fromOffset(6, 1),
+		BackgroundColor3 = theme.TextDim,
+		BorderSizePixel = 0,
+		Rotation = 45,
+	})
+	corner(resizeIndicator1, 1)
+	local resizeIndicator2 = new("Frame", {
+		Parent = resizeHandle,
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -4, 1, -8),
+		Size = UDim2.fromOffset(10, 1),
+		BackgroundColor3 = theme.TextDim,
+		BorderSizePixel = 0,
+		Rotation = 45,
+	})
+	corner(resizeIndicator2, 1)
+
+	local resizing = false
+	local resizeStart, startSize
+	local MIN_W, MIN_H = 300, 200
+
+	resizeHandle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			resizing = true
+			resizeStart = input.Position
+			startSize = main.Size
+		end
+	end)
+	resizeHandle.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			resizing = false
+		end
+	end)
+
+	table.insert(self.Connections, UserInputService.InputChanged:Connect(function(input)
+		if not resizing then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			local delta = input.Position - resizeStart
+			local newX = math.max(MIN_W, startSize.X.Offset + delta.X)
+			local newY = math.max(MIN_H, startSize.Y.Offset + delta.Y)
+			main.Size = UDim2.new(startSize.X.Scale, newX, startSize.Y.Scale, newY)
+		end
+	end))
+	-- END RESIZE FEATURE
+
 	local minimized = false
 	local fullSize = main.Size
 
@@ -329,10 +391,12 @@ function Library:CreateWindow(config)
 			fullSize = main.Size
 			sidebar.Visible = false
 			content.Visible = false
+			resizeHandle.Visible = false -- Hide resize handle when minimized
 			tween(main, { Size = UDim2.new(fullSize.X.Scale, fullSize.X.Offset, 0, 42) }, 0.18)
 		else
 			sidebar.Visible = true
 			content.Visible = true
+			resizeHandle.Visible = true -- Show resize handle when restored
 			tween(main, { Size = fullSize }, 0.18)
 		end
 	end)
@@ -669,7 +733,7 @@ Library:RegisterElement("Toggle", function(section, config)
 		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
 	})
 	corner(knob, 8)
-	knob.Name = "ToggleKnob" -- FIXED: Prevents theme from overwriting white knob
+	knob.Name = "ToggleKnob" -- Prevents theme from overwriting white knob
 
 	local function render(animate)
 		local on = value == true
@@ -766,7 +830,7 @@ Library:RegisterElement("Slider", function(section, config)
 		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
 	})
 	corner(knob, 6)
-	knob.Name = "SliderKnob" -- FIXED: Prevents theme from overwriting white knob
+	knob.Name = "SliderKnob" -- Prevents theme from overwriting white knob
 
 	local hit = new("TextButton", {
 		Parent = row, Position = UDim2.new(0, 0, 1, -18),
@@ -1541,7 +1605,7 @@ function Library:RefreshTheme()
 		"Color", "PlaceholderColor3", "TextStrokeColor3",
 	}
 
-	-- FIXED: Elements that should NOT be recolored by the theme manager
+	-- Elements that should NOT be recolored by the theme manager
 	local ignoreNames = {
 		SVSquare = true,
 		HueBar = true,
