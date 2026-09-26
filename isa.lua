@@ -27,11 +27,9 @@ Library.Theme = {
 	Radius      = 8,
 }
 
--- Snapshot of the theme, used to detect which instances are theme-colored
 Library._prevTheme = {}
 for k, v in pairs(Library.Theme) do Library._prevTheme[k] = v end
 
--- Default snapshot for reset
 Library.DefaultTheme = {}
 for k, v in pairs(Library.Theme) do Library.DefaultTheme[k] = v end
 
@@ -325,7 +323,6 @@ function Library:CreateWindow(config)
 		end
 	end))
 
-	-- WINDOWS 11 STYLE RESIZING SYSTEM
 	local MIN_W, MIN_H = 300, 200
 	local resizeZones = {
 		{Name = "Top", Size = UDim2.new(1, -24, 0, 4), Pos = UDim2.new(0, 12, 0, 0), Dir = "top"},
@@ -347,7 +344,7 @@ function Library:CreateWindow(config)
 			BackgroundTransparency = 1,
 			Text = "",
 			AutoButtonColor = false,
-			ZIndex = 100, -- Ensure it sits on top of other UI elements
+			ZIndex = 100,
 		})
 		
 		btn.MouseEnter:Connect(function()
@@ -377,13 +374,11 @@ function Library:CreateWindow(config)
 			local newPosX = self._startPos.X.Offset
 			local newPosY = self._startPos.Y.Offset
 			
-			-- Calculate starting edges based on the initial center position
 			local leftStart = self._startPos.X.Offset - self._startSize.X.Offset / 2
 			local rightStart = self._startPos.X.Offset + self._startSize.X.Offset / 2
 			local topStart = self._startPos.Y.Offset - self._startSize.Y.Offset / 2
 			local bottomStart = self._startPos.Y.Offset + self._startSize.Y.Offset / 2
 			
-			-- Horizontal Resizing
 			if self._resizeDir == "right" or self._resizeDir == "topright" or self._resizeDir == "bottomright" then
 				local newRight = math.max(leftStart + MIN_W, rightStart + delta.X)
 				newSizeX = newRight - leftStart
@@ -394,7 +389,6 @@ function Library:CreateWindow(config)
 				newPosX = newLeft + newSizeX / 2
 			end
 			
-			-- Vertical Resizing
 			if self._resizeDir == "bottom" or self._resizeDir == "bottomleft" or self._resizeDir == "bottomright" then
 				local newBottom = math.max(topStart + MIN_H, bottomStart + delta.Y)
 				newSizeY = newBottom - topStart
@@ -416,7 +410,6 @@ function Library:CreateWindow(config)
 			pcall(function() UserInputService.MouseIcon = "" end)
 		end
 	end))
-	-- END WINDOWS 11 STYLE RESIZING SYSTEM
 
 	local minimized = false
 	local fullSize = main.Size
@@ -921,9 +914,80 @@ Library:RegisterElement("Slider", function(section, config)
 	el.Instance = row
 	el._conns = { c1, c2 }
 	el.Value = value
-	function el:Set(v, silent) value = math.clamp(tonumber(v) or min, min, max); render(); if not silent then self:Fire(value) end end
+	function el:Set(v, silent)
+		value = math.clamp(tonumber(v) or min, min, max)
+		render()
+		if not silent then self:Fire(value) end
+	end
 	function el:Get() return value end
 	render()
+
+	--=================================================================
+	-- RIGHT-CLICK TO TYPE A VALUE
+	--=================================================================
+	local typeFrame, typeBox
+
+	local function ensureTypeUI()
+		if typeFrame then return end
+		typeFrame = new("Frame", {
+			Parent = row,
+			Position = UDim2.fromScale(0, 0),
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = theme.SurfaceAlt,
+			BorderSizePixel = 0,
+			Visible = false,
+			ZIndex = 50,
+		})
+		corner(typeFrame, 6)
+		stroke(typeFrame, theme.Accent, 1, 0.2)
+
+		typeBox = new("TextBox", {
+			Parent = typeFrame,
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Font = theme.FontMedium,
+			Text = "",
+			PlaceholderText = "Type value, press Enter...",
+			PlaceholderColor3 = theme.TextDim,
+			TextColor3 = theme.Text,
+			TextSize = 12,
+			ClearTextOnFocus = false,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			ZIndex = 52,
+		})
+
+		typeBox.FocusLost:Connect(function(enterPressed)
+			if enterPressed then
+				local cleaned = tostring(typeBox.Text or ""):gsub("[^%-%d%.]", "")
+				local num = tonumber(cleaned)
+				if num then el:Set(num) end
+			end
+			typeFrame.Visible = false
+		end)
+	end
+
+	UserInputService.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton2 then return end
+		if typeFrame and typeFrame.Visible then return end
+
+		local obj = row
+		while obj do
+			if obj:IsA("GuiObject") and not obj.Visible then return end
+			obj = obj.Parent
+		end
+		local sz = row.AbsoluteSize
+		if sz.X <= 0 or sz.Y <= 0 then return end
+
+		local ap = row.AbsolutePosition
+		local mx, my = input.Position.X, input.Position.Y
+		if mx >= ap.X and mx <= ap.X + sz.X and my >= ap.Y and my <= ap.Y + sz.Y then
+			ensureTypeUI()
+			typeBox.Text = tostring(value)
+			typeFrame.Visible = true
+			typeBox:CaptureFocus()
+		end
+	end)
+
 	return finishElement(el, config)
 end)
 
@@ -1236,7 +1300,6 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		swatch.BackgroundColor3 = color
 		if built then
 			preview.BackgroundColor3 = color
-			-- Two-color gradient: white on left, pure hue on right
 			svGradient.Color = ColorSequence.new({
 				ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
 				ColorSequenceKeypoint.new(1, Color3.fromHSV(h, 1, 1)),
@@ -1272,7 +1335,6 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		corner(svSquare, 6)
 		svSquare.Name = "SVSquare"
 
-		-- Two-color gradient: white (left) -> pure hue (right)
 		svGradient = new("UIGradient", {
 			Parent = svSquare,
 			Color = ColorSequence.new({
@@ -1281,7 +1343,6 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			}),
 		})
 
-		-- Black overlay: transparent top, opaque bottom
 		local blackOverlay = new("Frame", {
 			Parent = svSquare, Size = UDim2.fromScale(1, 1),
 			BackgroundColor3 = Color3.new(0, 0, 0),
@@ -1543,6 +1604,170 @@ Library:RegisterElement("Space", function(section, config)
 end)
 
 --=====================================================================
+-- ESP PREVIEW ELEMENT
+--=====================================================================
+Library:RegisterElement("ESPPreview", function(section, config)
+	config = config or {}
+	local theme = Library.Theme
+	local el = Element.new(config)
+
+	local ROW_H = config.Height or 220
+	local row = addRow(section, ROW_H)
+
+	local canvas = new("Frame", {
+		Parent = row,
+		Name = "ESPPreviewCanvas",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = theme.Background,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+	})
+	corner(canvas, 8)
+	stroke(canvas, theme.Outline, 1, 0.35)
+
+	local BOX_W, BOX_H = 90, 120
+	local boxHolder = new("Frame", {
+		Parent = canvas,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(BOX_W, BOX_H),
+		BackgroundTransparency = 1,
+	})
+
+	local boxLines = {}
+	local boxNames = {"ESPPreviewBoxTop", "ESPPreviewBoxRight", "ESPPreviewBoxBottom", "ESPPreviewBoxLeft"}
+	for i = 1, 4 do
+		boxLines[i] = new("Frame", {
+			Parent = boxHolder,
+			Name = boxNames[i],
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BorderSizePixel = 0,
+		})
+	end
+	boxLines[1].Position = UDim2.fromOffset(0, 0)
+	boxLines[1].Size = UDim2.fromOffset(BOX_W, 1)
+	boxLines[2].Position = UDim2.fromOffset(BOX_W - 1, 0)
+	boxLines[2].Size = UDim2.fromOffset(1, BOX_H)
+	boxLines[3].Position = UDim2.fromOffset(0, BOX_H - 1)
+	boxLines[3].Size = UDim2.fromOffset(BOX_W, 1)
+	boxLines[4].Position = UDim2.fromOffset(0, 0)
+	boxLines[4].Size = UDim2.fromOffset(1, BOX_H)
+
+	local nameLabel = new("TextLabel", {
+		Parent = boxHolder,
+		Name = "ESPPreviewName",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 0, -3),
+		Size = UDim2.new(1, 40, 0, 16),
+		BackgroundTransparency = 1,
+		Font = theme.Font,
+		Text = "PlayerName",
+		TextColor3 = Color3.new(1, 1, 1),
+		TextSize = 14,
+		TextStrokeTransparency = 0.4,
+		TextStrokeColor3 = Color3.new(0, 0, 0),
+	})
+
+	local distLabel = new("TextLabel", {
+		Parent = boxHolder,
+		Name = "ESPPreviewDistance",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 1, 3),
+		Size = UDim2.new(1, 40, 0, 16),
+		BackgroundTransparency = 1,
+		Font = theme.Font,
+		Text = "50 studs",
+		TextColor3 = Color3.new(1, 1, 1),
+		TextSize = 14,
+		TextStrokeTransparency = 0.4,
+		TextStrokeColor3 = Color3.new(0, 0, 0),
+	})
+
+	local healthBarBg = new("Frame", {
+		Parent = boxHolder, Name = "ESPPreviewHealthBg",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(0, -5, 0, 0),
+		Size = UDim2.fromOffset(3, BOX_H),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.5, BorderSizePixel = 0,
+	})
+	corner(healthBarBg, 1)
+	local healthFill = new("Frame", {
+		Parent = healthBarBg, Name = "ESPPreviewHealthFill",
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 0, 1, 0),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(0, 255, 0),
+		BorderSizePixel = 0,
+	})
+	corner(healthFill, 1)
+
+	local armorBarBg = new("Frame", {
+		Parent = boxHolder, Name = "ESPPreviewArmorBg",
+		Position = UDim2.new(1, 5, 0, 0),
+		Size = UDim2.fromOffset(3, BOX_H),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.5, BorderSizePixel = 0,
+	})
+	corner(armorBarBg, 1)
+	local armorFill = new("Frame", {
+		Parent = armorBarBg, Name = "ESPPreviewArmorFill",
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 0, 1, 0),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(0, 150, 255),
+		BorderSizePixel = 0,
+	})
+	corner(armorFill, 1)
+
+	function el:SetConfig(cfg)
+		cfg = cfg or {}
+		self.Value = cfg
+
+		local nameCfg   = cfg.Name     or {}
+		local boxCfg    = cfg.Box      or {}
+		local healthCfg = cfg.Health   or {}
+		local armorCfg  = cfg.Armor    or {}
+		local distCfg   = cfg.Distance or {}
+
+		nameLabel.Visible = nameCfg.Enabled ~= false
+		nameLabel.Text = nameCfg.Text or "PlayerName"
+		nameLabel.TextColor3 = nameCfg.Color or Color3.new(1, 1, 1)
+		nameLabel.TextSize = nameCfg.Size or 14
+
+		local boxVisible = boxCfg.Enabled ~= false
+		for i = 1, 4 do
+			boxLines[i].Visible = boxVisible
+			boxLines[i].BackgroundColor3 = boxCfg.Color or Color3.new(1, 1, 1)
+		end
+
+		healthBarBg.Visible = healthCfg.Enabled ~= false
+		healthFill.BackgroundColor3 = healthCfg.Color or Color3.fromRGB(0, 255, 0)
+		local hpVal = tonumber(healthCfg.Value) or 100
+		local hpMax = tonumber(healthCfg.Max) or 100
+		local hpPct = hpMax > 0 and (hpVal / hpMax) or 0
+		healthFill.Size = UDim2.fromScale(1, math.clamp(hpPct, 0, 1))
+
+		armorBarBg.Visible = armorCfg.Enabled ~= false
+		armorFill.BackgroundColor3 = armorCfg.Color or Color3.fromRGB(0, 150, 255)
+		local arVal = tonumber(armorCfg.Value) or 100
+		local arMax = tonumber(armorCfg.Max) or 200
+		local arPct = arMax > 0 and (arVal / arMax) or 0
+		armorFill.Size = UDim2.fromScale(1, math.clamp(arPct, 0, 1))
+
+		distLabel.Visible = distCfg.Enabled ~= false
+		distLabel.Text = distCfg.Text or "50 studs"
+		distLabel.TextColor3 = distCfg.Color or Color3.new(1, 1, 1)
+		distLabel.TextSize = distCfg.Size or 14
+	end
+
+	el.Instance = row
+	if config.Default then el:SetConfig(config.Default) end
+
+	return finishElement(el, config)
+end)
+
+--=====================================================================
 -- NOTIFICATIONS
 --=====================================================================
 local TYPE_COLORS = {
@@ -1653,6 +1878,15 @@ function Library:RefreshTheme()
 		SVMarkerStroke = true,
 		ToggleKnob = true,
 		SliderKnob = true,
+		-- ESP Preview (user-chosen colors — do not overwrite)
+		ESPPreviewName = true,
+		ESPPreviewDistance = true,
+		ESPPreviewHealthFill = true,
+		ESPPreviewArmorFill = true,
+		ESPPreviewBoxTop = true,
+		ESPPreviewBoxRight = true,
+		ESPPreviewBoxBottom = true,
+		ESPPreviewBoxLeft = true,
 	}
 
 	for _, gui in ipairs(guis) do
