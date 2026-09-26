@@ -1162,17 +1162,19 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		built = true
 		local gui = section.Window.Gui
 
+		-- Smaller, sleeker popup
 		popup = new("Frame", {
-			Parent = gui, Size = UDim2.fromOffset(216, 194),
+			Parent = gui, Size = UDim2.fromOffset(180, 160),
 			BackgroundColor3 = theme.Surface, BorderSizePixel = 0,
 			Visible = false, ZIndex = 950,
 		})
 		corner(popup, 8)
 		stroke(popup, theme.Outline, 1)
-		padding(popup, 10, 10, 10, 10)
+		padding(popup, 8, 8, 8, 8)
 
+		-- Smaller SV square (80px tall instead of 120px)
 		svSquare = new("Frame", {
-			Parent = popup, Size = UDim2.new(1, 0, 0, 120),
+			Parent = popup, Size = UDim2.new(1, 0, 0, 80),
 			BackgroundColor3 = Color3.fromHSV(h, 1, 1),
 			BorderSizePixel = 0, ZIndex = 1,
 		})
@@ -1206,15 +1208,16 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		svMarker = new("Frame", {
 			Parent = svSquare, AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.new(s, 0, 1 - v, 0),
-			Size = UDim2.fromOffset(10, 10),
+			Size = UDim2.fromOffset(8, 8),
 			BackgroundTransparency = 1, ZIndex = 5,
 		})
-		corner(svMarker, 5)
+		corner(svMarker, 4)
 		stroke(svMarker, Color3.new(1, 1, 1), 2)
 
+		-- Adjusted hue bar position and height
 		hueBar = new("Frame", {
-			Parent = popup, Position = UDim2.fromOffset(0, 130),
-			Size = UDim2.new(1, 0, 0, 12),
+			Parent = popup, Position = UDim2.fromOffset(0, 90),
+			Size = UDim2.new(1, 0, 0, 10),
 			BackgroundColor3 = Color3.new(1, 1, 1),
 			BorderSizePixel = 0, ZIndex = 1,
 		})
@@ -1235,33 +1238,34 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		hueMarker = new("Frame", {
 			Parent = hueBar, AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.new(h, 0, 0.5, 0),
-			Size = UDim2.fromOffset(8, 16),
+			Size = UDim2.fromOffset(6, 12),
 			BackgroundColor3 = Color3.new(1, 1, 1),
 			BorderSizePixel = 0, ZIndex = 5,
 		})
-		corner(hueMarker, 4)
+		corner(hueMarker, 3)
 		stroke(hueMarker, theme.Background, 2)
 
+		-- Adjusted preview and hex box positions
 		preview = new("Frame", {
-			Parent = popup, Position = UDim2.fromOffset(0, 152),
-			Size = UDim2.fromOffset(24, 22),
+			Parent = popup, Position = UDim2.fromOffset(0, 112),
+			Size = UDim2.fromOffset(20, 20),
 			BackgroundColor3 = color, BorderSizePixel = 0,
 		})
 		corner(preview, 5)
 		stroke(preview, theme.Outline, 1)
 
 		hexBox = new("TextBox", {
-			Parent = popup, Position = UDim2.fromOffset(32, 152),
-			Size = UDim2.new(1, -32, 0, 22),
+			Parent = popup, Position = UDim2.fromOffset(28, 112),
+			Size = UDim2.new(1, -28, 0, 20),
 			BackgroundColor3 = theme.SurfaceAlt,
-			Font = theme.Font, Text = "FFFFFF", TextSize = 12,
+			Font = theme.Font, Text = "FFFFFF", TextSize = 11,
 			TextColor3 = theme.Text,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			ClearTextOnFocus = false,
 		})
 		corner(hexBox, 5)
 		stroke(hexBox, theme.Outline, 1, 0.5)
-		padding(hexBox, 0, 8, 0, 8)
+		padding(hexBox, 0, 6, 0, 6)
 
 		hexBox.FocusLost:Connect(function()
 			local hex = hexBox.Text:gsub("#", "")
@@ -1343,7 +1347,8 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		if opened then
 			local pos = swatch.AbsolutePosition
 			local size = swatch.AbsoluteSize
-			local pw, ph = 216, 194
+			-- Updated popup width/height for positioning
+			local pw, ph = 180, 160
 			local x = pos.X + size.X - pw
 			local y = pos.Y + size.Y + 6
 			local viewport = workspace.CurrentCamera.ViewportSize
@@ -1744,16 +1749,13 @@ function Library:BuildConfigTab(tab)
 	local fileAPI = hasFileAPI()
 
 	---------------------------------------------------------------
-	-- THEME CUSTOMIZATION
+	-- THEME CUSTOMIZATION (ACCENT ONLY)
 	---------------------------------------------------------------
-	local themeKeys = {
-		"Accent", "Background", "Surface", "SurfaceAlt",
-		"SurfaceHigh", "Outline", "Text", "TextDim",
-	}
+	local themeKeys = { "Accent" }
 
 	local secTheme = tab:Section("UI Theme")
 	secTheme:Paragraph({
-		Text = "Click a swatch to pick a color. Changes apply live.",
+		Text = "Click the swatch to pick a new accent color. Changes apply live.",
 	})
 
 	for _, key in ipairs(themeKeys) do
@@ -1769,7 +1771,7 @@ function Library:BuildConfigTab(tab)
 	end
 
 	secTheme:Button({
-		Name = "Reset Theme to Default",
+		Name = "Reset Accent to Default",
 		Callback = function()
 			for _, key in ipairs(themeKeys) do
 				local el = Library.Elements["__theme_" .. key]
@@ -1780,7 +1782,7 @@ function Library:BuildConfigTab(tab)
 				end
 			end
 			Library:RefreshTheme()
-			Library:Notify({ Title = "Theme", Content = "Default theme restored.", Type = "Info" })
+			Library:Notify({ Title = "Theme", Content = "Default accent restored.", Type = "Info" })
 		end,
 	})
 
