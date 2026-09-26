@@ -205,23 +205,72 @@ function Library:CreateWindow(config)
 		TextXAlignment = Enum.TextXAlignment.Left,
 	})
 
-	local function makeTopButton(text, xOffset, colorOnHover)
+	local function makeTopButton(xOffset, colorOnHover)
 		local b = new("TextButton", {
 			Parent = topbar, AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, xOffset, 0.5, 0),
 			Size = UDim2.fromOffset(26, 26),
 			BackgroundColor3 = theme.Surface, BackgroundTransparency = 0.3,
-			Text = text, Font = theme.FontBold, TextSize = 12,
-			TextColor3 = theme.TextDim, AutoButtonColor = false,
+			Text = "", AutoButtonColor = false,
 		})
 		corner(b, 6)
-		b.MouseEnter:Connect(function() tween(b, { BackgroundColor3 = colorOnHover, TextColor3 = theme.Text }, 0.12) end)
-		b.MouseLeave:Connect(function() tween(b, { BackgroundColor3 = theme.Surface, TextColor3 = theme.TextDim }, 0.12) end)
-		return b
+		return b, colorOnHover
 	end
 
-	local minimizeBtn = makeTopButton("—", -46, theme.SurfaceHigh)
-	local closeBtn    = makeTopButton("✕", -12, theme.Bad)
+	-- Minimize button (drawn as a small horizontal bar)
+	local minimizeBtn, minHover = makeTopButton(-46, theme.SurfaceHigh)
+	local minBar = new("Frame", {
+		Parent = minimizeBtn,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(10, 1.5),
+		BackgroundColor3 = theme.TextDim,
+		BorderSizePixel = 0,
+	})
+	corner(minBar, 1)
+
+	-- Close button (drawn as an X using two rotated bars)
+	local closeBtn, closeHover = makeTopButton(-12, theme.Bad)
+	local xLine1 = new("Frame", {
+		Parent = closeBtn,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(11, 1.5),
+		BackgroundColor3 = theme.TextDim,
+		BorderSizePixel = 0,
+		Rotation = 45,
+	})
+	corner(xLine1, 1)
+	local xLine2 = new("Frame", {
+		Parent = closeBtn,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(11, 1.5),
+		BackgroundColor3 = theme.TextDim,
+		BorderSizePixel = 0,
+		Rotation = -45,
+	})
+	corner(xLine2, 1)
+
+	-- Hover states
+	minimizeBtn.MouseEnter:Connect(function()
+		tween(minimizeBtn, { BackgroundColor3 = theme.SurfaceHigh }, 0.12)
+		minBar.BackgroundColor3 = theme.Text
+	end)
+	minimizeBtn.MouseLeave:Connect(function()
+		tween(minimizeBtn, { BackgroundColor3 = theme.Surface }, 0.12)
+		minBar.BackgroundColor3 = theme.TextDim
+	end)
+	closeBtn.MouseEnter:Connect(function()
+		tween(closeBtn, { BackgroundColor3 = theme.Bad }, 0.12)
+		xLine1.BackgroundColor3 = theme.Text
+		xLine2.BackgroundColor3 = theme.Text
+	end)
+	closeBtn.MouseLeave:Connect(function()
+		tween(closeBtn, { BackgroundColor3 = theme.Surface }, 0.12)
+		xLine1.BackgroundColor3 = theme.TextDim
+		xLine2.BackgroundColor3 = theme.TextDim
+	end)
 
 	local sidebar = new("Frame", {
 		Name = "Sidebar", Parent = main,
@@ -816,7 +865,7 @@ Library:RegisterElement("Dropdown", function(section, config)
 		Position = UDim2.new(1, 0, 0.5, 0),
 		Size = UDim2.fromOffset(12, 12),
 		BackgroundTransparency = 1,
-		Font = theme.FontBold, Text = "▾",
+		Font = theme.FontBold, Text = "v",
 		TextColor3 = theme.TextDim, TextSize = 12,
 	})
 
@@ -1041,7 +1090,6 @@ Library:RegisterElement("Keybind", function(section, config)
 	return finishElement(el, config)
 end)
 
---== ColorPicker (fixed — no ZIndex on UIGradient) ==================
 Library:RegisterElement("ColorPicker", function(section, config)
 	config = config or {}
 	local theme = Library.Theme
@@ -1107,7 +1155,6 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		})
 		corner(svSquare, 6)
 
-		-- UIGradient does NOT support ZIndex — leave it out
 		new("UIGradient", {
 			Parent = svSquare,
 			Color = ColorSequence.new(Color3.new(1, 1, 1)),
