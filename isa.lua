@@ -1797,4 +1797,273 @@ function Library:Unload()
 	end
 end
 
+--=====================================================================
+-- CONFIG MANAGER (filesystem)
+--=====================================================================
+Library.ConfigFolder = "prism_configs"
+Library.AutoLoadFile = "prism_configs/.autoload"
+
+local function hasFileAPI()
+	return typeof(writefile) == "function"
+		and typeof(readfile) == "function"
+		and typeof(isfile) == "function"
+		and typeof(delfile) == "function"
+		and typeof(isfolder) == "function"
+		and typeof(makefolder) == "function"
+		and typeof(listfiles) == "function"
+end
+
+local function ensureFolder()
+	if not hasFileAPI() then return false end
+	if not isfolder(Library.ConfigFolder) then
+		makefolder(Library.ConfigFolder)
+	end
+	return true
+end
+
+function Library:ListConfigs()
+	if not ensureFolder() then return {} end
+	local out = {}
+	local ok, files = pcall(listfiles, Library.ConfigFolder)
+	if not ok or type(files) ~= "table" then return out end
+	for _, path in ipairs(files) do
+		local name = path:match("([^/\\]+)%.cfg$")
+		if name and name ~= "" and name:sub(1, 1) ~= "." then
+			table.insert(out, name)
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+function Library:ConfigExists(name)
+	if not hasFileAPI() or not name or name == "" then return false end
+	return isfile(Library.ConfigFolder .. "/" .. name .. ".cfg")
+end
+
+function Library:SaveConfigNamed(name)
+	if not hasFileAPI() then return false, "no file API" end
+	if not name or name == "" then return false, "empty name" end
+	ensureFolder()
+
+	local data = {}
+	for flag, value in pairs(Library.Flags) do
+		data[flag] = value
+	end
+	local str = "return " .. Library:Serialize(data)
+
+	local ok, err = pcall(writefile, Library.ConfigFolder .. "/" .. name .. ".cfg", str)
+	if not ok then return false, err end
+	return true
+end
+
+function Library:LoadConfigNamed(name)
+	if not name or name == "" then return false end
+	if not Library:ConfigExists(name) then return false end
+	return Library:LoadConfig(Library.ConfigFolder .. "/" .. name .. ".cfg")
+end
+
+function Library:DeleteConfig(name)
+	if not hasFileAPI() or not name or name == "" then return false end
+	local path = Library.ConfigFolder .. "/" .. name .. ".cfg"
+	if not isfile(path) then return false end
+	local ok = pcall(delfile, path)
+	return ok
+end
+
+function Library:GetAutoLoad()
+	if not hasFileAPI() then return nil end
+	if not isfile(Library.AutoLoadFile) then return nil end
+	local ok, name = pcall(readfile, Library.AutoLoadFile)
+	if not ok or type(name) ~= "string" then return nil end
+	name = name:gsub("%s+", "")
+	if name == "" then return nil end
+	return name
+end
+
+function Library:SetAutoLoad(name)
+	if not hasFileAPI() then return end
+	ensureFolder()
+	if not name or name == "" then
+		if isfile(Library.AutoLoadFile) then
+			pcall(delfile, Library.AutoLoadFile)
+		end
+	else
+		pcall(writefile, Library.AutoLoadFile, name)
+	end
+end
+
+function Library:ApplyAutoLoad()
+	local name = Library:GetAutoLoad()
+	if name and Library:ConfigExists(name) then
+		return Library:LoadConfigNamed(name)
+	end
+	return false
+end
+
+--=====================================================================
+-- CONFIG TAB BUILDER
+--=====================================================================
+function Library:BuildConfigTab(tab)
+	local theme = Library.Theme
+	local fileAPI = hasFileAPI()
+
+	local function configOptions()
+		local opts = { "None" }
+		for _, name in ipairs(Library:ListConfigs()) do
+			table.insert(opts, name)
+		end
+		return opts
+	end
+
+	local refreshAll
+
+	-- ============ SAVE ==========================================
+	local secSave = tab:Section("Save Configuration")
+
+	local nameInput = secSave:Input({
+		Name        = "Config name",
+		Placeholder = "my_config",
+	})
+
+	secSave:Button({
+		Name = "Save",
+		Callback = function()
+			local name = tostring(nameInput:Get() or "")
+			name = name:gsub("%s+", "_"):gsub("[^%w_%-%.]", "")
+			if name == "" then
+				Library:Notify({ Title = "Save failed", Content = "Enter a name first.", Type = "Warning" })
+				return
+			end
+			local ok, err = Library:SaveConfigNamed(name)
+			if ok then
+				Library:Notify({ Title = "Saved", Content = "Config '" .. name .. "' saved.", Type = "Success" })
+				if refreshAll then refreshAll() end
+			else
+				Library:Notify({ Title = "Save failed", Content = tostring(err or "unknown"), Type = "Error" })
+			end
+		end,
+	})
+
+	-- ============ LOAD ==========================================
+	local secLoad = tab:Section("Load Configuration")
+
+	local loadDropdown = secLoad:Dropdown({
+		Name       = "Select config",
+		Options    = configOptions(),
+		Default    = "None",
+		MaxVisible = 5,
+	})
+
+	secLoad:Button({
+		Name = "Load Selected",
+		Callback = function()
+			local name = loadDropdown:Get()
+			if not name or name == "None" then
+				Library:Notify({ Title = "Load failed", Content = "No config selected.", Type = "Warning" })
+				return
+			end
+			if Library:LoadConfigNamed(name) then
+				Library:Notify({ Title = "Loaded", Content = "Config '" .. name .. "' applied.", Type = "Success" })
+			else
+				Library:Notify({ Title = "Load failed", Content = "Could not read '" .. name .. "'.", Type = "Error" })
+			end
+		end,
+	})
+
+	-- ============ AUTO LOAD =====================================
+	local secAuto = tab:Section("Auto Load on Startup")
+
+	-- Clean stale autoload entry
+	local autoCurrent = Library:GetAutoLoad()
+	if autoCurrent and not Library:ConfigExists(autoCurrent) then
+		autoCurrent = nil
+		Library:SetAutoLoad(nil)
+	end
+
+	local autoDropdown = secAuto:Dropdown({
+		Name       = "Auto-load config",
+		Options    = configOptions(),
+		Default    = autoCurrent or "None",
+		MaxVisible = 5,
+		OnChanged  = function(value)
+			if value == "None" then
+				Library:SetAutoLoad(nil)
+				Library:Notify({ Title = "Auto-load", Content = "Disabled.", Type = "Info" })
+			else
+				Library:SetAutoLoad(value)
+				Library:Notify({ Title = "Auto-load", Content = "Will load '" .. value .. "' on startup.", Type = "Success" })
+			end
+		end,
+	})
+
+	secAuto:Paragraph({
+		Text = "The selected config is applied automatically the next time the script runs. Call Library:ApplyAutoLoad() after building your UI.",
+	})
+
+	-- ============ DELETE ========================================
+	local secManage = tab:Section("Manage Configs")
+
+	local deleteDropdown = secManage:Dropdown({
+		Name       = "Select to delete",
+		Options    = configOptions(),
+		Default    = "None",
+		MaxVisible = 5,
+	})
+
+	local confirming = false
+
+	secManage:Button({
+		Name = "Delete Selected",
+		Callback = function()
+			local name = deleteDropdown:Get()
+			if not name or name == "None" then
+				Library:Notify({ Title = "Delete", Content = "Select a config first.", Type = "Warning" })
+				return
+			end
+			if not confirming then
+				confirming = true
+				Library:Notify({ Title = "Confirm delete", Content = "Click again to delete '" .. name .. "'.", Type = "Warning", Duration = 3 })
+				task.delay(3, function() confirming = false end)
+				return
+			end
+			confirming = false
+			if Library:DeleteConfig(name) then
+				if Library:GetAutoLoad() == name then
+					Library:SetAutoLoad(nil)
+				end
+				Library:Notify({ Title = "Deleted", Content = "'" .. name .. "' removed.", Type = "Success" })
+				if refreshAll then refreshAll() end
+			else
+				Library:Notify({ Title = "Delete failed", Content = "File not found.", Type = "Error" })
+			end
+		end,
+	})
+
+	secManage:Button({
+		Name = "Refresh list",
+		Callback = function()
+			if refreshAll then refreshAll() end
+			Library:Notify({ Title = "Refreshed", Content = "Config list updated.", Type = "Info", Duration = 2 })
+		end,
+	})
+
+	-- ============ REFRESH HELPER ================================
+	refreshAll = function()
+		local opts = configOptions()
+		loadDropdown:SetOptions(opts)
+		deleteDropdown:SetOptions(opts)
+		autoDropdown:SetOptions(opts)
+	end
+
+	if not fileAPI then
+		tab:Section("Warning"):Paragraph({
+			Text = "Your executor does not expose file functions (writefile, readfile, etc.). Configs will not persist.",
+			Color = theme.Bad,
+		})
+	end
+
+	return { Refresh = refreshAll }
+end
+
 return Library
