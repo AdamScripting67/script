@@ -178,6 +178,11 @@ function Library:CreateWindow(config)
 	self.Tabs = {}
 	self.ActiveTab = nil
 	self.Connections = {}
+	self._resizing = false
+	self._resizeStart = nil
+	self._startSize = nil
+	self._startPos = nil
+	self._resizeDir = nil
 
 	local main = new("Frame", {
 		Name = "Window", Parent = gui,
@@ -320,67 +325,98 @@ function Library:CreateWindow(config)
 		end
 	end))
 
-	-- RESIZE FEATURE
-	local resizeHandle = new("TextButton", {
-		Name = "ResizeHandle",
-		Parent = main,
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, 0, 1, 0),
-		Size = UDim2.fromOffset(16, 16),
-		BackgroundTransparency = 1,
-		Text = "",
-		AutoButtonColor = false,
-	})
-	
-	-- Visual indicator for resize handle
-	local resizeIndicator1 = new("Frame", {
-		Parent = resizeHandle,
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -4, 1, -4),
-		Size = UDim2.fromOffset(6, 1),
-		BackgroundColor3 = theme.TextDim,
-		BorderSizePixel = 0,
-		Rotation = 45,
-	})
-	corner(resizeIndicator1, 1)
-	local resizeIndicator2 = new("Frame", {
-		Parent = resizeHandle,
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -4, 1, -8),
-		Size = UDim2.fromOffset(10, 1),
-		BackgroundColor3 = theme.TextDim,
-		BorderSizePixel = 0,
-		Rotation = 45,
-	})
-	corner(resizeIndicator2, 1)
-
-	local resizing = false
-	local resizeStart, startSize
+	-- WINDOWS 11 STYLE RESIZING SYSTEM
 	local MIN_W, MIN_H = 300, 200
+	local resizeZones = {
+		{Name = "Top", Size = UDim2.new(1, -24, 0, 4), Pos = UDim2.new(0, 12, 0, 0), Dir = "top"},
+		{Name = "Bottom", Size = UDim2.new(1, -24, 0, 4), Pos = UDim2.new(0, 12, 1, -4), Dir = "bottom"},
+		{Name = "Left", Size = UDim2.new(0, 4, 1, -24), Pos = UDim2.new(0, 0, 0, 12), Dir = "left"},
+		{Name = "Right", Size = UDim2.new(0, 4, 1, -24), Pos = UDim2.new(1, -4, 0, 12), Dir = "right"},
+		{Name = "TopLeft", Size = UDim2.fromOffset(16, 16), Pos = UDim2.fromOffset(0, 0), Dir = "topleft"},
+		{Name = "TopRight", Size = UDim2.fromOffset(16, 16), Pos = UDim2.new(1, -16, 0, 0), Dir = "topright"},
+		{Name = "BottomLeft", Size = UDim2.fromOffset(16, 16), Pos = UDim2.new(0, 0, 1, -16), Dir = "bottomleft"},
+		{Name = "BottomRight", Size = UDim2.fromOffset(16, 16), Pos = UDim2.new(1, -16, 1, -16), Dir = "bottomright"},
+	}
 
-	resizeHandle.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			resizing = true
-			resizeStart = input.Position
-			startSize = main.Size
-		end
-	end)
-	resizeHandle.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			resizing = false
-		end
-	end)
+	for _, zone in ipairs(resizeZones) do
+		local btn = new("TextButton", {
+			Name = "Resize" .. zone.Name,
+			Parent = main,
+			Size = zone.Size,
+			Position = zone.Pos,
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 100, -- Ensure it sits on top of other UI elements
+		})
+		
+		btn.MouseEnter:Connect(function()
+			pcall(function() UserInputService.MouseIcon = "rbxasset://textures/ui/ResizeCursor.png" end)
+		end)
+		btn.MouseLeave:Connect(function()
+			pcall(function() UserInputService.MouseIcon = "" end)
+		end)
+		
+		btn.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				self._resizing = true
+				self._resizeStart = input.Position
+				self._startSize = main.Size
+				self._startPos = main.Position
+				self._resizeDir = zone.Dir
+			end
+		end)
+	end
 
 	table.insert(self.Connections, UserInputService.InputChanged:Connect(function(input)
-		if not resizing then return end
+		if not self._resizing then return end
 		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-			local delta = input.Position - resizeStart
-			local newX = math.max(MIN_W, startSize.X.Offset + delta.X)
-			local newY = math.max(MIN_H, startSize.Y.Offset + delta.Y)
-			main.Size = UDim2.new(startSize.X.Scale, newX, startSize.Y.Scale, newY)
+			local delta = input.Position - self._resizeStart
+			local newSizeX = self._startSize.X.Offset
+			local newSizeY = self._startSize.Y.Offset
+			local newPosX = self._startPos.X.Offset
+			local newPosY = self._startPos.Y.Offset
+			
+			-- Calculate starting edges based on the initial center position
+			local leftStart = self._startPos.X.Offset - self._startSize.X.Offset / 2
+			local rightStart = self._startPos.X.Offset + self._startSize.X.Offset / 2
+			local topStart = self._startPos.Y.Offset - self._startSize.Y.Offset / 2
+			local bottomStart = self._startPos.Y.Offset + self._startSize.Y.Offset / 2
+			
+			-- Horizontal Resizing
+			if self._resizeDir == "right" or self._resizeDir == "topright" or self._resizeDir == "bottomright" then
+				local newRight = math.max(leftStart + MIN_W, rightStart + delta.X)
+				newSizeX = newRight - leftStart
+				newPosX = leftStart + newSizeX / 2
+			elseif self._resizeDir == "left" or self._resizeDir == "topleft" or self._resizeDir == "bottomleft" then
+				local newLeft = math.min(rightStart - MIN_W, leftStart + delta.X)
+				newSizeX = rightStart - newLeft
+				newPosX = newLeft + newSizeX / 2
+			end
+			
+			-- Vertical Resizing
+			if self._resizeDir == "bottom" or self._resizeDir == "bottomleft" or self._resizeDir == "bottomright" then
+				local newBottom = math.max(topStart + MIN_H, bottomStart + delta.Y)
+				newSizeY = newBottom - topStart
+				newPosY = topStart + newSizeY / 2
+			elseif self._resizeDir == "top" or self._resizeDir == "topleft" or self._resizeDir == "topright" then
+				local newTop = math.min(bottomStart - MIN_H, topStart + delta.Y)
+				newSizeY = bottomStart - newTop
+				newPosY = newTop + newSizeY / 2
+			end
+			
+			main.Size = UDim2.new(self._startSize.X.Scale, newSizeX, self._startSize.Y.Scale, newSizeY)
+			main.Position = UDim2.new(self._startPos.X.Scale, newPosX, self._startPos.Y.Scale, newPosY)
 		end
 	end))
-	-- END RESIZE FEATURE
+
+	table.insert(self.Connections, UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			self._resizing = false
+			pcall(function() UserInputService.MouseIcon = "" end)
+		end
+	end))
+	-- END WINDOWS 11 STYLE RESIZING SYSTEM
 
 	local minimized = false
 	local fullSize = main.Size
@@ -391,12 +427,16 @@ function Library:CreateWindow(config)
 			fullSize = main.Size
 			sidebar.Visible = false
 			content.Visible = false
-			resizeHandle.Visible = false -- Hide resize handle when minimized
+			for _, child in ipairs(main:GetChildren()) do
+				if child.Name:sub(1, 6) == "Resize" then child.Visible = false end
+			end
 			tween(main, { Size = UDim2.new(fullSize.X.Scale, fullSize.X.Offset, 0, 42) }, 0.18)
 		else
 			sidebar.Visible = true
 			content.Visible = true
-			resizeHandle.Visible = true -- Show resize handle when restored
+			for _, child in ipairs(main:GetChildren()) do
+				if child.Name:sub(1, 6) == "Resize" then child.Visible = true end
+			end
 			tween(main, { Size = fullSize }, 0.18)
 		end
 	end)
@@ -733,7 +773,7 @@ Library:RegisterElement("Toggle", function(section, config)
 		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
 	})
 	corner(knob, 8)
-	knob.Name = "ToggleKnob" -- Prevents theme from overwriting white knob
+	knob.Name = "ToggleKnob"
 
 	local function render(animate)
 		local on = value == true
@@ -830,7 +870,7 @@ Library:RegisterElement("Slider", function(section, config)
 		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
 	})
 	corner(knob, 6)
-	knob.Name = "SliderKnob" -- Prevents theme from overwriting white knob
+	knob.Name = "SliderKnob"
 
 	local hit = new("TextButton", {
 		Parent = row, Position = UDim2.new(0, 0, 1, -18),
@@ -1230,7 +1270,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BorderSizePixel = 0, ZIndex = 1,
 		})
 		corner(svSquare, 6)
-		svSquare.Name = "SVSquare" -- FIXED
+		svSquare.Name = "SVSquare"
 
 		-- Two-color gradient: white (left) -> pure hue (right)
 		svGradient = new("UIGradient", {
@@ -1248,7 +1288,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BorderSizePixel = 0, ZIndex = 2,
 		})
 		corner(blackOverlay, 6)
-		blackOverlay.Name = "BlackOverlay" -- FIXED
+		blackOverlay.Name = "BlackOverlay"
 		new("UIGradient", {
 			Parent = blackOverlay,
 			Rotation = 90,
@@ -1266,9 +1306,9 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BackgroundTransparency = 1, ZIndex = 5,
 		})
 		corner(svMarker, 4)
-		svMarker.Name = "SVMarker" -- FIXED
+		svMarker.Name = "SVMarker"
 		local svMarkerStroke = stroke(svMarker, Color3.new(1, 1, 1), 2)
-		svMarkerStroke.Name = "SVMarkerStroke" -- FIXED
+		svMarkerStroke.Name = "SVMarkerStroke"
 
 		hueBar = new("Frame", {
 			Parent = popup, Position = UDim2.fromOffset(0, 90),
@@ -1277,7 +1317,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BorderSizePixel = 0, ZIndex = 1,
 		})
 		corner(hueBar, 6)
-		hueBar.Name = "HueBar" -- FIXED
+		hueBar.Name = "HueBar"
 		new("UIGradient", {
 			Parent = hueBar,
 			Color = ColorSequence.new({
@@ -1299,7 +1339,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BorderSizePixel = 0, ZIndex = 5,
 		})
 		corner(hueMarker, 3)
-		hueMarker.Name = "HueMarker" -- FIXED
+		hueMarker.Name = "HueMarker"
 		stroke(hueMarker, theme.Background, 2)
 
 		preview = new("Frame", {
@@ -1308,7 +1348,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BackgroundColor3 = color, BorderSizePixel = 0,
 		})
 		corner(preview, 5)
-		preview.Name = "PreviewSwatch" -- FIXED
+		preview.Name = "PreviewSwatch"
 		stroke(preview, theme.Outline, 1)
 
 		hexBox = new("TextBox", {
@@ -1591,8 +1631,6 @@ end
 -- THEME MANAGEMENT
 --=====================================================================
 
--- Scans all library GUI instances and updates any Color3 property that
--- matches a value in the previous theme snapshot to the current one.
 function Library:RefreshTheme()
 	local guis = {}
 	if Library._notifyGui then table.insert(guis, Library._notifyGui) end
@@ -1605,7 +1643,6 @@ function Library:RefreshTheme()
 		"Color", "PlaceholderColor3", "TextStrokeColor3",
 	}
 
-	-- Elements that should NOT be recolored by the theme manager
 	local ignoreNames = {
 		SVSquare = true,
 		HueBar = true,
@@ -1624,7 +1661,6 @@ function Library:RefreshTheme()
 				for _, prop in ipairs(colorProps) do
 					local ok, val = pcall(function() return d[prop] end)
 					if ok and typeof(val) == "Color3" then
-						-- Match against previous theme values
 						for key, oldColor in pairs(Library._prevTheme) do
 							if typeof(oldColor) == "Color3" and val == oldColor then
 								local newColor = Library.Theme[key]
@@ -1640,7 +1676,6 @@ function Library:RefreshTheme()
 		end
 	end
 
-	-- Update snapshot
 	for k, v in pairs(Library.Theme) do Library._prevTheme[k] = v end
 end
 
@@ -1666,7 +1701,6 @@ function Library:ToggleWindows()
 	end
 end
 
--- Global hotkey listener
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if Library._keybindListening then return end
 
@@ -1849,9 +1883,6 @@ function Library:BuildConfigTab(tab)
 	local theme = Library.Theme
 	local fileAPI = hasFileAPI()
 
-	---------------------------------------------------------------
-	-- THEME CUSTOMIZATION (ACCENT ONLY)
-	---------------------------------------------------------------
 	local themeKeys = { "Accent" }
 
 	local secTheme = tab:Section("UI Theme")
@@ -1887,9 +1918,6 @@ function Library:BuildConfigTab(tab)
 		end,
 	})
 
-	---------------------------------------------------------------
-	-- UI HOTKEY
-	---------------------------------------------------------------
 	local secHotkey = tab:Section("UI Hotkey")
 	secHotkey:Keybind({
 		Name = "Toggle UI Keybind",
@@ -1905,9 +1933,6 @@ function Library:BuildConfigTab(tab)
 		Text = "Press this key to show or hide the UI. Default: RightShift.",
 	})
 
-	---------------------------------------------------------------
-	-- SAVE / LOAD / AUTO / MANAGE
-	---------------------------------------------------------------
 	local function configOptions()
 		local opts = { "None" }
 		for _, name in ipairs(Library:ListConfigs()) do table.insert(opts, name) end
