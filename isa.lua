@@ -27,39 +27,23 @@ Library.Theme = {
 	Radius      = 8,
 }
 
--- Snapshot of default colors so a "reset" is possible
+-- Snapshot of the theme, used to detect which instances are theme-colored
+Library._prevTheme = {}
+for k, v in pairs(Library.Theme) do Library._prevTheme[k] = v end
+
+-- Default snapshot for reset
 Library.DefaultTheme = {}
 for k, v in pairs(Library.Theme) do Library.DefaultTheme[k] = v end
 
--- Registry of instances whose properties follow the theme
-Library._themed = setmetatable({}, { __mode = "k" })
-
--- Global toggle keybind (changeable from the config tab)
 Library.ToggleKeybind = "RightShift"
 Library._keybindListening = false
 
 local function new(class, props)
 	local inst = Instance.new(class)
 	local parent
-	local themed
 	for k, v in pairs(props or {}) do
-		if k == "Parent" then
-			parent = v
-		else
-			inst[k] = v
-			-- Auto-detect theme colors so RefreshTheme can repaint live
-			if typeof(v) == "Color3" then
-				for tk, tv in pairs(Library.Theme) do
-					if typeof(tv) == "Color3" and tv == v then
-						if not themed then themed = {} end
-						table.insert(themed, { Prop = k, Key = tk })
-						break
-					end
-				end
-			end
-		end
+		if k == "Parent" then parent = v else inst[k] = v end
 	end
-	if themed then Library._themed[inst] = themed end
 	if parent then inst.Parent = parent end
 	return inst
 end
@@ -216,15 +200,9 @@ function Library:CreateWindow(config)
 		Size = UDim2.new(1, -24, 0, 1),
 		BackgroundColor3 = theme.Outline, BackgroundTransparency = 0.4, BorderSizePixel = 0,
 	})
-	corner(new("Frame", {
-		Parent = topbar, AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 16, 0.5, 0),
-		Size = UDim2.fromOffset(8, 8),
-		BackgroundColor3 = theme.Accent, BorderSizePixel = 0,
-	}), 4)
 	new("TextLabel", {
 		Parent = topbar, AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 32, 0.5, 0),
+		Position = UDim2.new(0, 16, 0.5, 0),
 		Size = UDim2.new(0.6, 0, 1, 0),
 		BackgroundTransparency = 1,
 		Font = theme.FontBold,
@@ -1138,7 +1116,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 	corner(swatch, 5)
 	stroke(swatch, theme.Outline, 1)
 
-	local popup, svSquare, svMarker, hueBar, hueMarker, preview, hexBox
+	local popup, svSquare, svGradient, svMarker, hueBar, hueMarker, preview, hexBox
 	local built, opened = false, false
 
 	local function updateMarkers()
@@ -1152,7 +1130,11 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		swatch.BackgroundColor3 = color
 		if built then
 			preview.BackgroundColor3 = color
-			svSquare.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+			-- Two-color gradient: white on left, pure hue on right
+			svGradient.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+				ColorSequenceKeypoint.new(1, Color3.fromHSV(h, 1, 1)),
+			})
 			if not hexBox:IsFocused() then
 				hexBox.Text = string.format("%02X%02X%02X",
 					math.floor(color.R * 255 + 0.5),
@@ -1167,7 +1149,6 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		built = true
 		local gui = section.Window.Gui
 
-		-- Smaller, sleeker popup
 		popup = new("Frame", {
 			Parent = gui, Size = UDim2.fromOffset(180, 160),
 			BackgroundColor3 = theme.Surface, BorderSizePixel = 0,
@@ -1177,24 +1158,23 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		stroke(popup, theme.Outline, 1)
 		padding(popup, 8, 8, 8, 8)
 
-		-- Smaller SV square (80px tall instead of 120px)
 		svSquare = new("Frame", {
 			Parent = popup, Size = UDim2.new(1, 0, 0, 80),
-			BackgroundColor3 = Color3.fromHSV(h, 1, 1),
+			BackgroundColor3 = Color3.new(1, 1, 1),
 			BorderSizePixel = 0, ZIndex = 1,
 		})
 		corner(svSquare, 6)
 
-		-- FIXED: Left side is white (opaque), right side is pure hue (transparent)
-		new("UIGradient", {
+		-- Two-color gradient: white (left) -> pure hue (right)
+		svGradient = new("UIGradient", {
 			Parent = svSquare,
-			Color = ColorSequence.new(Color3.new(1, 1, 1)),
-			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 0), -- Left: opaque white
-				NumberSequenceKeypoint.new(1, 1), -- Right: transparent (shows pure hue)
+			Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+				ColorSequenceKeypoint.new(1, Color3.fromHSV(h, 1, 1)),
 			}),
 		})
 
+		-- Black overlay: transparent top, opaque bottom
 		local blackOverlay = new("Frame", {
 			Parent = svSquare, Size = UDim2.fromScale(1, 1),
 			BackgroundColor3 = Color3.new(0, 0, 0),
@@ -1206,8 +1186,8 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			Rotation = 90,
 			Color = ColorSequence.new(Color3.new(0, 0, 0)),
 			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 1), -- Top: transparent (bright)
-				NumberSequenceKeypoint.new(1, 0), -- Bottom: opaque black
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(1, 0),
 			}),
 		})
 
@@ -1220,7 +1200,6 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		corner(svMarker, 4)
 		stroke(svMarker, Color3.new(1, 1, 1), 2)
 
-		-- Adjusted hue bar position and height
 		hueBar = new("Frame", {
 			Parent = popup, Position = UDim2.fromOffset(0, 90),
 			Size = UDim2.new(1, 0, 0, 10),
@@ -1251,7 +1230,6 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		corner(hueMarker, 3)
 		stroke(hueMarker, theme.Background, 2)
 
-		-- Adjusted preview and hex box positions
 		preview = new("Frame", {
 			Parent = popup, Position = UDim2.fromOffset(0, 112),
 			Size = UDim2.fromOffset(20, 20),
@@ -1353,7 +1331,6 @@ Library:RegisterElement("ColorPicker", function(section, config)
 		if opened then
 			local pos = swatch.AbsolutePosition
 			local size = swatch.AbsoluteSize
-			-- Updated popup width/height for positioning
 			local pw, ph = 180, 160
 			local x = pos.X + size.X - pw
 			local y = pos.Y + size.Y + 6
@@ -1540,15 +1517,43 @@ end
 --=====================================================================
 -- THEME MANAGEMENT
 --=====================================================================
+
+-- Scans all library GUI instances and updates any Color3 property that
+-- matches a value in the previous theme snapshot to the current one.
 function Library:RefreshTheme()
-	for inst, entries in pairs(Library._themed) do
-		if typeof(inst) == "Instance" and inst.Parent then
-			for _, e in ipairs(entries) do
-				local v = Library.Theme[e.Key]
-				if v ~= nil then inst[e.Prop] = v end
+	local guis = {}
+	if Library._notifyGui then table.insert(guis, Library._notifyGui) end
+	for _, w in ipairs(Library.Windows) do
+		if w.Gui then table.insert(guis, w.Gui) end
+	end
+
+	local colorProps = {
+		"BackgroundColor3", "TextColor3", "ImageColor3",
+		"Color", "PlaceholderColor3", "TextStrokeColor3",
+	}
+
+	for _, gui in ipairs(guis) do
+		for _, d in ipairs(gui:GetDescendants()) do
+			for _, prop in ipairs(colorProps) do
+				local ok, val = pcall(function() return d[prop] end)
+				if ok and typeof(val) == "Color3" then
+					-- Match against previous theme values
+					for key, oldColor in pairs(Library._prevTheme) do
+						if typeof(oldColor) == "Color3" and val == oldColor then
+							local newColor = Library.Theme[key]
+							if newColor ~= nil and typeof(newColor) == "Color3" and newColor ~= val then
+								d[prop] = newColor
+							end
+							break
+						end
+					end
+				end
 			end
 		end
 	end
+
+	-- Update snapshot
+	for k, v in pairs(Library.Theme) do Library._prevTheme[k] = v end
 end
 
 function Library:SetThemeColor(key, color)
@@ -1565,7 +1570,6 @@ function Library:ResetTheme()
 	self:RefreshTheme()
 end
 
--- Toggle all windows visible / hidden
 function Library:ToggleWindows()
 	for _, w in ipairs(Library.Windows) do
 		if w.MainFrame then
@@ -1575,9 +1579,6 @@ function Library:ToggleWindows()
 end
 
 -- Global hotkey listener
--- For keyboard: ignore gpe (right shift is shift lock and would set gpe=true),
--- but still skip while a textbox is focused.
--- For mouse buttons: keep the gpe check so clicking UI doesn't toggle the window.
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if Library._keybindListening then return end
 
@@ -1643,7 +1644,6 @@ function Library:LoadConfig(filename)
 			pcall(function() el:Set(value, true) end)
 		end
 	end
-	-- Re-apply theme + toggle keybind (silent Sets don't fire callbacks)
 	Library:_ApplySpecialFlags()
 	return true
 end
@@ -1789,7 +1789,7 @@ function Library:BuildConfigTab(tab)
 			for _, key in ipairs(themeKeys) do
 				local el = Library.Elements["__theme_" .. key]
 				if el then
-					el:Set(Library.DefaultTheme[key]) -- fires OnChanged -> updates Theme + refresh
+					el:Set(Library.DefaultTheme[key])
 				else
 					Library.Theme[key] = Library.DefaultTheme[key]
 				end
@@ -1973,7 +1973,6 @@ function Library:Unload()
 	Library.Windows = {}
 	Library.Flags = {}
 	Library.Elements = {}
-	Library._themed = setmetatable({}, { __mode = "k" })
 	if Library._notifyGui then
 		Library._notifyGui:Destroy()
 		Library._notifyGui = nil
