@@ -669,6 +669,7 @@ Library:RegisterElement("Toggle", function(section, config)
 		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
 	})
 	corner(knob, 8)
+	knob.Name = "ToggleKnob" -- FIXED: Prevents theme from overwriting white knob
 
 	local function render(animate)
 		local on = value == true
@@ -765,6 +766,7 @@ Library:RegisterElement("Slider", function(section, config)
 		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
 	})
 	corner(knob, 6)
+	knob.Name = "SliderKnob" -- FIXED: Prevents theme from overwriting white knob
 
 	local hit = new("TextButton", {
 		Parent = row, Position = UDim2.new(0, 0, 1, -18),
@@ -1164,6 +1166,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BorderSizePixel = 0, ZIndex = 1,
 		})
 		corner(svSquare, 6)
+		svSquare.Name = "SVSquare" -- FIXED
 
 		-- Two-color gradient: white (left) -> pure hue (right)
 		svGradient = new("UIGradient", {
@@ -1181,6 +1184,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BorderSizePixel = 0, ZIndex = 2,
 		})
 		corner(blackOverlay, 6)
+		blackOverlay.Name = "BlackOverlay" -- FIXED
 		new("UIGradient", {
 			Parent = blackOverlay,
 			Rotation = 90,
@@ -1198,7 +1202,9 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BackgroundTransparency = 1, ZIndex = 5,
 		})
 		corner(svMarker, 4)
-		stroke(svMarker, Color3.new(1, 1, 1), 2)
+		svMarker.Name = "SVMarker" -- FIXED
+		local svMarkerStroke = stroke(svMarker, Color3.new(1, 1, 1), 2)
+		svMarkerStroke.Name = "SVMarkerStroke" -- FIXED
 
 		hueBar = new("Frame", {
 			Parent = popup, Position = UDim2.fromOffset(0, 90),
@@ -1207,6 +1213,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BorderSizePixel = 0, ZIndex = 1,
 		})
 		corner(hueBar, 6)
+		hueBar.Name = "HueBar" -- FIXED
 		new("UIGradient", {
 			Parent = hueBar,
 			Color = ColorSequence.new({
@@ -1228,6 +1235,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BorderSizePixel = 0, ZIndex = 5,
 		})
 		corner(hueMarker, 3)
+		hueMarker.Name = "HueMarker" -- FIXED
 		stroke(hueMarker, theme.Background, 2)
 
 		preview = new("Frame", {
@@ -1236,6 +1244,7 @@ Library:RegisterElement("ColorPicker", function(section, config)
 			BackgroundColor3 = color, BorderSizePixel = 0,
 		})
 		corner(preview, 5)
+		preview.Name = "PreviewSwatch" -- FIXED
 		stroke(preview, theme.Outline, 1)
 
 		hexBox = new("TextBox", {
@@ -1532,19 +1541,34 @@ function Library:RefreshTheme()
 		"Color", "PlaceholderColor3", "TextStrokeColor3",
 	}
 
+	-- FIXED: Elements that should NOT be recolored by the theme manager
+	local ignoreNames = {
+		SVSquare = true,
+		HueBar = true,
+		BlackOverlay = true,
+		SVMarker = true,
+		HueMarker = true,
+		PreviewSwatch = true,
+		SVMarkerStroke = true,
+		ToggleKnob = true,
+		SliderKnob = true,
+	}
+
 	for _, gui in ipairs(guis) do
 		for _, d in ipairs(gui:GetDescendants()) do
-			for _, prop in ipairs(colorProps) do
-				local ok, val = pcall(function() return d[prop] end)
-				if ok and typeof(val) == "Color3" then
-					-- Match against previous theme values
-					for key, oldColor in pairs(Library._prevTheme) do
-						if typeof(oldColor) == "Color3" and val == oldColor then
-							local newColor = Library.Theme[key]
-							if newColor ~= nil and typeof(newColor) == "Color3" and newColor ~= val then
-								d[prop] = newColor
+			if not ignoreNames[d.Name] then
+				for _, prop in ipairs(colorProps) do
+					local ok, val = pcall(function() return d[prop] end)
+					if ok and typeof(val) == "Color3" then
+						-- Match against previous theme values
+						for key, oldColor in pairs(Library._prevTheme) do
+							if typeof(oldColor) == "Color3" and val == oldColor then
+								local newColor = Library.Theme[key]
+								if newColor ~= nil and typeof(newColor) == "Color3" and newColor ~= val then
+									d[prop] = newColor
+								end
+								break
 							end
-							break
 						end
 					end
 				end
