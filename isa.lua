@@ -1041,11 +1041,23 @@ Library:RegisterElement("Dropdown", function(section, config)
 		TextColor3 = theme.TextDim, TextSize = 12,
 	})
 
-	local list = new("Frame", {
+	--=================================================================
+	-- ScrollingFrame so long option lists can scroll instead of being
+	-- clipped. Previously this was a plain Frame with ClipsDescendants
+	-- which cut off anything past MaxVisible.
+	--=================================================================
+	local list = new("ScrollingFrame", {
 		Parent = row, Position = UDim2.fromOffset(0, ROW_H + 2),
 		Size = UDim2.new(1, 0, 0, 0),
 		BackgroundColor3 = theme.SurfaceAlt, BorderSizePixel = 0,
 		ClipsDescendants = true, Visible = false,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = theme.Outline,
+		ScrollBarImageTransparency = 0.4,
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ElasticBehavior = Enum.ElasticBehavior.Never,
 	})
 	corner(list, 6)
 	stroke(list, theme.Outline, 1, 0.5)
