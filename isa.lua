@@ -37,7 +37,6 @@ Library.ToggleKeybind = "RightShift"
 Library._keybindListening = false
 
 -- Optional handlers the host script can register for the Config tab buttons.
--- If not set, the buttons fall back to safe defaults.
 Library.ConfigHandlers = Library.ConfigHandlers or {}
 
 local function new(class, props)
@@ -2118,14 +2117,13 @@ function Library:ApplyAutoLoad()
 end
 
 --=====================================================================
--- CONFIG TAB (redesigned to match reference two-column layout)
+-- CONFIG TAB (compact two-column layout, no scroll needed)
 --=====================================================================
 function Library:BuildConfigTab(tab)
 	local theme = Library.Theme
 	local fileAPI = hasFileAPI()
 	local handlers = Library.ConfigHandlers or {}
 
-	-- Pick the active page container for this tab
 	local page = tab.DirectScroll or tab.SubPages
 
 	-- === TWO-COLUMN CONTAINER ===
@@ -2138,27 +2136,27 @@ function Library:BuildConfigTab(tab)
 		LayoutOrder = tab._order,
 	})
 	new("UIListLayout", {
-		Parent = layout, Padding = UDim.new(0, 12),
+		Parent = layout, Padding = UDim.new(0, 10),
 		FillDirection = Enum.FillDirection.Horizontal,
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment = Enum.VerticalAlignment.Top,
 	})
 
 	local leftCol = new("Frame", {
-		Parent = layout, Size = UDim2.new(0.5, -6, 0, 0),
+		Parent = layout, Size = UDim2.new(0.5, -5, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1, LayoutOrder = 1,
 	})
-	new("UIListLayout", { Parent = leftCol, Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder })
+	new("UIListLayout", { Parent = leftCol, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder })
 
 	local rightCol = new("Frame", {
-		Parent = layout, Size = UDim2.new(0.5, -6, 0, 0),
+		Parent = layout, Size = UDim2.new(0.5, -5, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1, LayoutOrder = 2,
 	})
-	new("UIListLayout", { Parent = rightCol, Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder })
+	new("UIListLayout", { Parent = rightCol, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder })
 
-	-- === PSEUDO-SECTION (works with existing element registry) ===
+	-- === PSEUDO-SECTION ===
 	local pseudoMt = {
 		__index = function(_, key)
 			local ctor = Library.Registry[key]
@@ -2177,13 +2175,13 @@ function Library:BuildConfigTab(tab)
 			BackgroundTransparency = 1,
 			LayoutOrder = counters[side],
 		})
-		new("UIListLayout", { Parent = group, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder })
+		new("UIListLayout", { Parent = group, Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder })
 
 		if title and title ~= "" then
 			new("TextLabel", {
-				Parent = group, Size = UDim2.new(1, 0, 0, 18),
+				Parent = group, Size = UDim2.new(1, 0, 0, 14),
 				BackgroundTransparency = 1, Font = theme.FontBold,
-				Text = title, TextColor3 = theme.Text, TextSize = 13,
+				Text = title, TextColor3 = theme.Text, TextSize = 12,
 				TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 1,
 			})
 		end
@@ -2193,7 +2191,7 @@ function Library:BuildConfigTab(tab)
 			AutomaticSize = Enum.AutomaticSize.Y,
 			BackgroundTransparency = 1, LayoutOrder = 2,
 		})
-		new("UIListLayout", { Parent = container, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder })
+		new("UIListLayout", { Parent = container, Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder })
 
 		return setmetatable({
 			Container = container, Instance = group,
@@ -2201,12 +2199,12 @@ function Library:BuildConfigTab(tab)
 		}, pseudoMt)
 	end
 
-	-- === STYLED BUTTON (icon + centered label, optional red danger style) ===
+	-- === STYLED BUTTON (compact) ===
 	local function styledButton(parent, text, icon, opts)
 		opts = opts or {}
 		local danger = opts.Danger == true
 		local order = opts.Order or 0
-		local width = opts.Width or UDim2.new(1, 0, 0, 32)
+		local width = opts.Width or UDim2.new(1, 0, 0, 24)
 
 		local baseBg  = danger and Color3.fromRGB(42, 20, 26) or theme.SurfaceAlt
 		local hoverBg = danger and Color3.fromRGB(60, 28, 36) or theme.SurfaceHigh
@@ -2220,17 +2218,17 @@ function Library:BuildConfigTab(tab)
 			AutoButtonColor = false, BorderSizePixel = 0,
 			LayoutOrder = order,
 		})
-		corner(btn, 6)
+		corner(btn, 5)
 		stroke(btn, border, 1, 0.3)
 
 		if icon then
 			new("TextLabel", {
-				Parent = btn, Size = UDim2.fromOffset(16, 16),
-				Position = UDim2.new(0, 14, 0.5, 0),
+				Parent = btn, Size = UDim2.fromOffset(14, 14),
+				Position = UDim2.new(0, 12, 0.5, 0),
 				AnchorPoint = Vector2.new(0, 0.5),
 				BackgroundTransparency = 1, Font = theme.FontMedium,
 				Text = icon, TextColor3 = iconCol,
-				TextSize = 14, TextXAlignment = Enum.TextXAlignment.Center,
+				TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
 			})
 		end
 
@@ -2238,7 +2236,7 @@ function Library:BuildConfigTab(tab)
 			Parent = btn, Size = UDim2.new(1, 0, 1, 0),
 			BackgroundTransparency = 1, Font = theme.FontMedium,
 			Text = text, TextColor3 = txtCol,
-			TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
+			TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center,
 		})
 
 		btn.MouseEnter:Connect(function() tween(btn, { BackgroundColor3 = hoverBg }) end)
@@ -2249,11 +2247,11 @@ function Library:BuildConfigTab(tab)
 
 	local function buttonRow(parent, order)
 		local r = new("Frame", {
-			Parent = parent, Size = UDim2.new(1, 0, 0, 32),
+			Parent = parent, Size = UDim2.new(1, 0, 0, 24),
 			BackgroundTransparency = 1, LayoutOrder = order,
 		})
 		new("UIListLayout", {
-			Parent = r, Padding = UDim.new(0, 8),
+			Parent = r, Padding = UDim.new(0, 6),
 			FillDirection = Enum.FillDirection.Horizontal,
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		})
@@ -2276,7 +2274,10 @@ function Library:BuildConfigTab(tab)
 		if box and box:IsA("Frame") then
 			box.AnchorPoint = Vector2.new(0, 0.5)
 			box.Position = UDim2.new(0, 0, 0.5, 0)
-			box.Size = UDim2.new(1, 0, 0, 28)
+			box.Size = UDim2.new(1, 0, 0, 22)
+		end
+		if nameInput.Instance then
+			nameInput.Instance.Size = UDim2.new(1, 0, 0, 26)
 		end
 	end
 
@@ -2291,10 +2292,10 @@ function Library:BuildConfigTab(tab)
 
 	local btnsRow = buttonRow(loadGroup.Container, 2)
 	local loadBtn = styledButton(btnsRow, "Load", "↑", {
-		Order = 1, Width = UDim2.new(0.5, -4, 1, 0),
+		Order = 1, Width = UDim2.new(0.5, -3, 1, 0),
 	})
 	local deleteBtn = styledButton(btnsRow, "Delete", "✕", {
-		Order = 2, Width = UDim2.new(0.5, -4, 1, 0),
+		Order = 2, Width = UDim2.new(0.5, -3, 1, 0),
 	})
 
 	-- === LEFT: Auto Load ===
@@ -2321,13 +2322,15 @@ function Library:BuildConfigTab(tab)
 			end
 		end,
 	})
-	-- Expand keybind button to fill row & left-align the key text
 	do
-		local kbBtn = hotkeyEl.Instance:FindFirstChildWhichIsA("TextButton")
+		if hotkeyEl and hotkeyEl.Instance then
+			hotkeyEl.Instance.Size = UDim2.new(1, 0, 0, 26)
+		end
+		local kbBtn = hotkeyEl.Instance and hotkeyEl.Instance:FindFirstChildWhichIsA("TextButton")
 		if kbBtn then
 			kbBtn.AnchorPoint = Vector2.new(0, 0.5)
 			kbBtn.Position = UDim2.new(0, 0, 0.5, 0)
-			kbBtn.Size = UDim2.new(1, 0, 0, 28)
+			kbBtn.Size = UDim2.new(1, 0, 0, 22)
 			kbBtn.TextXAlignment = Enum.TextXAlignment.Left
 			padding(kbBtn, 0, 12, 0, 12)
 		end
@@ -2335,7 +2338,7 @@ function Library:BuildConfigTab(tab)
 
 	-- === RIGHT: Accent Color ===
 	local accentGroup = makeGroup(rightCol, "right", "Accent Color")
-	accentGroup:ColorPicker({
+	local accentEl = accentGroup:ColorPicker({
 		Name = "", Flag = "__theme_Accent",
 		Default = Library.Theme.Accent,
 		OnChanged = function(color)
@@ -2343,6 +2346,11 @@ function Library:BuildConfigTab(tab)
 			Library:RefreshTheme()
 		end,
 	})
+	do
+		if accentEl and accentEl.Instance then
+			accentEl.Instance.Size = UDim2.new(1, 0, 0, 26)
+		end
+	end
 
 	-- === RIGHT: Actions ===
 	local actionsGroup = makeGroup(rightCol, "right", "")
