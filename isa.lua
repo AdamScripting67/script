@@ -36,6 +36,10 @@ for k, v in pairs(Library.Theme) do Library.DefaultTheme[k] = v end
 Library.ToggleKeybind = "RightShift"
 Library._keybindListening = false
 
+-- Optional handlers the host script can register for the Config tab buttons.
+-- If not set, the buttons fall back to safe defaults.
+Library.ConfigHandlers = Library.ConfigHandlers or {}
+
 local function new(class, props)
 	local inst = Instance.new(class)
 	local parent
@@ -922,9 +926,6 @@ Library:RegisterElement("Slider", function(section, config)
 	function el:Get() return value end
 	render()
 
-	--=================================================================
-	-- RIGHT-CLICK TO TYPE A VALUE
-	--=================================================================
 	local typeFrame, typeBox
 
 	local function ensureTypeUI()
@@ -1041,11 +1042,6 @@ Library:RegisterElement("Dropdown", function(section, config)
 		TextColor3 = theme.TextDim, TextSize = 12,
 	})
 
-	--=================================================================
-	-- ScrollingFrame so long option lists can scroll instead of being
-	-- clipped. Previously this was a plain Frame with ClipsDescendants
-	-- which cut off anything past MaxVisible.
-	--=================================================================
 	local list = new("ScrollingFrame", {
 		Parent = row, Position = UDim2.fromOffset(0, ROW_H + 2),
 		Size = UDim2.new(1, 0, 0, 0),
@@ -1890,7 +1886,6 @@ function Library:RefreshTheme()
 		SVMarkerStroke = true,
 		ToggleKnob = true,
 		SliderKnob = true,
-		-- ESP Preview (user-chosen colors — do not overwrite)
 		ESPPreviewName = true,
 		ESPPreviewDistance = true,
 		ESPPreviewHealthFill = true,
@@ -2123,61 +2118,147 @@ function Library:ApplyAutoLoad()
 end
 
 --=====================================================================
--- CONFIG TAB
+-- CONFIG TAB (redesigned to match reference two-column layout)
 --=====================================================================
 function Library:BuildConfigTab(tab)
 	local theme = Library.Theme
 	local fileAPI = hasFileAPI()
+	local handlers = Library.ConfigHandlers or {}
 
-	local themeKeys = { "Accent" }
+	-- Pick the active page container for this tab
+	local page = tab.DirectScroll or tab.SubPages
 
-	local secTheme = tab:Section("UI Theme")
-	secTheme:Paragraph({
-		Text = "Click the swatch to pick a new accent color. Changes apply live.",
+	-- === TWO-COLUMN CONTAINER ===
+	tab._order = (tab._order or 0) + 1
+	local layout = new("Frame", {
+		Parent = page, Name = "ConfigLayout",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = tab._order,
+	})
+	new("UIListLayout", {
+		Parent = layout, Padding = UDim.new(0, 12),
+		FillDirection = Enum.FillDirection.Horizontal,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
 	})
 
-	for _, key in ipairs(themeKeys) do
-		secTheme:ColorPicker({
-			Name = key,
-			Flag = "__theme_" .. key,
-			Default = Library.Theme[key],
-			OnChanged = function(color)
-				Library.Theme[key] = color
-				Library:RefreshTheme()
-			end,
+	local leftCol = new("Frame", {
+		Parent = layout, Size = UDim2.new(0.5, -6, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, LayoutOrder = 1,
+	})
+	new("UIListLayout", { Parent = leftCol, Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder })
+
+	local rightCol = new("Frame", {
+		Parent = layout, Size = UDim2.new(0.5, -6, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, LayoutOrder = 2,
+	})
+	new("UIListLayout", { Parent = rightCol, Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder })
+
+	-- === PSEUDO-SECTION (works with existing element registry) ===
+	local pseudoMt = {
+		__index = function(_, key)
+			local ctor = Library.Registry[key]
+			if ctor then
+				return function(self, config) return ctor(self, config) end
+			end
+			return nil
+		end,
+	}
+	local counters = { left = 0, right = 0 }
+	local function makeGroup(col, side, title)
+		counters[side] = counters[side] + 1
+		local group = new("Frame", {
+			Parent = col, Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			LayoutOrder = counters[side],
 		})
+		new("UIListLayout", { Parent = group, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder })
+
+		if title and title ~= "" then
+			new("TextLabel", {
+				Parent = group, Size = UDim2.new(1, 0, 0, 18),
+				BackgroundTransparency = 1, Font = theme.FontBold,
+				Text = title, TextColor3 = theme.Text, TextSize = 13,
+				TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 1,
+			})
+		end
+
+		local container = new("Frame", {
+			Parent = group, Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1, LayoutOrder = 2,
+		})
+		new("UIListLayout", { Parent = container, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder })
+
+		return setmetatable({
+			Container = container, Instance = group,
+			_order = 0, Window = tab.Window,
+		}, pseudoMt)
 	end
 
-	secTheme:Button({
-		Name = "Reset Accent to Default",
-		Callback = function()
-			for _, key in ipairs(themeKeys) do
-				local el = Library.Elements["__theme_" .. key]
-				if el then
-					el:Set(Library.DefaultTheme[key])
-				else
-					Library.Theme[key] = Library.DefaultTheme[key]
-				end
-			end
-			Library:RefreshTheme()
-			Library:Notify({ Title = "Theme", Content = "Default accent restored.", Type = "Info" })
-		end,
-	})
+	-- === STYLED BUTTON (icon + centered label, optional red danger style) ===
+	local function styledButton(parent, text, icon, opts)
+		opts = opts or {}
+		local danger = opts.Danger == true
+		local order = opts.Order or 0
+		local width = opts.Width or UDim2.new(1, 0, 0, 32)
 
-	local secHotkey = tab:Section("UI Hotkey")
-	secHotkey:Keybind({
-		Name = "Toggle UI Keybind",
-		Flag = "__ui_toggle_key",
-		Default = Library.ToggleKeybind,
-		OnChanged = function(key)
-			if typeof(key) == "string" and key ~= "" then
-				Library.ToggleKeybind = key
-			end
-		end,
-	})
-	secHotkey:Paragraph({
-		Text = "Press this key to show or hide the UI. Default: RightShift.",
-	})
+		local baseBg  = danger and Color3.fromRGB(42, 20, 26) or theme.SurfaceAlt
+		local hoverBg = danger and Color3.fromRGB(60, 28, 36) or theme.SurfaceHigh
+		local txtCol  = danger and Color3.fromRGB(240, 110, 110) or theme.Text
+		local iconCol = danger and Color3.fromRGB(240, 110, 110) or theme.TextDim
+		local border  = danger and Color3.fromRGB(95, 40, 50) or theme.Outline
+
+		local btn = new("TextButton", {
+			Parent = parent, Size = width,
+			BackgroundColor3 = baseBg, Text = "",
+			AutoButtonColor = false, BorderSizePixel = 0,
+			LayoutOrder = order,
+		})
+		corner(btn, 6)
+		stroke(btn, border, 1, 0.3)
+
+		if icon then
+			new("TextLabel", {
+				Parent = btn, Size = UDim2.fromOffset(16, 16),
+				Position = UDim2.new(0, 14, 0.5, 0),
+				AnchorPoint = Vector2.new(0, 0.5),
+				BackgroundTransparency = 1, Font = theme.FontMedium,
+				Text = icon, TextColor3 = iconCol,
+				TextSize = 14, TextXAlignment = Enum.TextXAlignment.Center,
+			})
+		end
+
+		new("TextLabel", {
+			Parent = btn, Size = UDim2.new(1, 0, 1, 0),
+			BackgroundTransparency = 1, Font = theme.FontMedium,
+			Text = text, TextColor3 = txtCol,
+			TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
+		})
+
+		btn.MouseEnter:Connect(function() tween(btn, { BackgroundColor3 = hoverBg }) end)
+		btn.MouseLeave:Connect(function() tween(btn, { BackgroundColor3 = baseBg }) end)
+
+		return btn
+	end
+
+	local function buttonRow(parent, order)
+		local r = new("Frame", {
+			Parent = parent, Size = UDim2.new(1, 0, 0, 32),
+			BackgroundTransparency = 1, LayoutOrder = order,
+		})
+		new("UIListLayout", {
+			Parent = r, Padding = UDim.new(0, 8),
+			FillDirection = Enum.FillDirection.Horizontal,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		})
+		return r
+	end
 
 	local function configOptions()
 		local opts = { "None" }
@@ -2185,131 +2266,208 @@ function Library:BuildConfigTab(tab)
 		return opts
 	end
 
-	local refreshAll
+	-- === LEFT: Save Config ===
+	local saveGroup = makeGroup(leftCol, "left", "Save Config")
+	local nameInput = saveGroup:Input({
+		Name = "", Placeholder = "Enter config name...",
+	})
+	if nameInput and nameInput.TextBox then
+		local box = nameInput.TextBox.Parent
+		if box and box:IsA("Frame") then
+			box.AnchorPoint = Vector2.new(0, 0.5)
+			box.Position = UDim2.new(0, 0, 0.5, 0)
+			box.Size = UDim2.new(1, 0, 0, 28)
+		end
+	end
 
-	local secSave = tab:Section("Save Configuration")
-	local nameInput = secSave:Input({ Name = "Config name", Placeholder = "my_config" })
+	local saveBtn = styledButton(saveGroup.Container, "Save Config", "↓", { Order = 2 })
 
-	secSave:Button({
-		Name = "Save",
-		Callback = function()
-			local name = tostring(nameInput:Get() or ""):gsub("%s+", "_"):gsub("[^%w_%-%.]", "")
-			if name == "" then
-				Library:Notify({ Title = "Save failed", Content = "Enter a name first.", Type = "Warning" })
-				return
-			end
-			local ok, err = Library:SaveConfigNamed(name)
-			if ok then
-				Library:Notify({ Title = "Saved", Content = "Config '" .. name .. "' saved.", Type = "Success" })
-				if refreshAll then refreshAll() end
-			else
-				Library:Notify({ Title = "Save failed", Content = tostring(err or "unknown"), Type = "Error" })
-			end
-		end,
+	-- === LEFT: Load Config ===
+	local loadGroup = makeGroup(leftCol, "left", "Load Config")
+	local loadDropdown = loadGroup:Dropdown({
+		Name = "", Options = configOptions(), Default = "None",
+		Placeholder = "Select a config...", MaxVisible = 5,
 	})
 
-	local secLoad = tab:Section("Load Configuration")
-	local loadDropdown = secLoad:Dropdown({
-		Name = "Select config", Options = configOptions(), Default = "None", MaxVisible = 5,
+	local btnsRow = buttonRow(loadGroup.Container, 2)
+	local loadBtn = styledButton(btnsRow, "Load", "↑", {
+		Order = 1, Width = UDim2.new(0.5, -4, 1, 0),
+	})
+	local deleteBtn = styledButton(btnsRow, "Delete", "✕", {
+		Order = 2, Width = UDim2.new(0.5, -4, 1, 0),
 	})
 
-	secLoad:Button({
-		Name = "Load Selected",
-		Callback = function()
-			local name = loadDropdown:Get()
-			if not name or name == "None" then
-				Library:Notify({ Title = "Load failed", Content = "No config selected.", Type = "Warning" })
-				return
-			end
-			if Library:LoadConfigNamed(name) then
-				Library:Notify({ Title = "Loaded", Content = "Config '" .. name .. "' applied.", Type = "Success" })
-			else
-				Library:Notify({ Title = "Load failed", Content = "Could not read '" .. name .. "'.", Type = "Error" })
-			end
-		end,
-	})
-
-	local secAuto = tab:Section("Auto Load on Startup")
+	-- === LEFT: Auto Load ===
+	local autoGroup = makeGroup(leftCol, "left", "Auto Load Config")
 	local autoCurrent = Library:GetAutoLoad()
 	if autoCurrent and not Library:ConfigExists(autoCurrent) then
 		autoCurrent = nil
 		Library:SetAutoLoad(nil)
 	end
-
-	local autoDropdown = secAuto:Dropdown({
-		Name = "Auto-load config",
-		Options = configOptions(),
+	local autoDropdown = autoGroup:Dropdown({
+		Name = "", Options = configOptions(),
 		Default = autoCurrent or "None",
-		MaxVisible = 5,
-		OnChanged = function(value)
-			if value == "None" then
-				Library:SetAutoLoad(nil)
-				Library:Notify({ Title = "Auto-load", Content = "Disabled.", Type = "Info" })
-			else
-				Library:SetAutoLoad(value)
-				Library:Notify({ Title = "Auto-load", Content = "Will load '" .. value .. "' on startup.", Type = "Success" })
+		Placeholder = "None", MaxVisible = 5,
+	})
+
+	-- === RIGHT: Menu Keybind ===
+	local hotkeyGroup = makeGroup(rightCol, "right", "Menu Keybind")
+	local hotkeyEl = hotkeyGroup:Keybind({
+		Name = "", Flag = "__ui_toggle_key",
+		Default = Library.ToggleKeybind,
+		OnChanged = function(key)
+			if typeof(key) == "string" and key ~= "" then
+				Library.ToggleKeybind = key
 			end
 		end,
 	})
-
-	secAuto:Paragraph({
-		Text = "The selected config is applied automatically the next time the script runs. Call Library:ApplyAutoLoad() after building your UI.",
-	})
-
-	local secManage = tab:Section("Manage Configs")
-	local deleteDropdown = secManage:Dropdown({
-		Name = "Select to delete", Options = configOptions(), Default = "None", MaxVisible = 5,
-	})
-
-	local confirming = false
-	secManage:Button({
-		Name = "Delete Selected",
-		Callback = function()
-			local name = deleteDropdown:Get()
-			if not name or name == "None" then
-				Library:Notify({ Title = "Delete", Content = "Select a config first.", Type = "Warning" })
-				return
-			end
-			if not confirming then
-				confirming = true
-				Library:Notify({ Title = "Confirm delete", Content = "Click again to delete '" .. name .. "'.", Type = "Warning", Duration = 3 })
-				task.delay(3, function() confirming = false end)
-				return
-			end
-			confirming = false
-			if Library:DeleteConfig(name) then
-				if Library:GetAutoLoad() == name then Library:SetAutoLoad(nil) end
-				Library:Notify({ Title = "Deleted", Content = "'" .. name .. "' removed.", Type = "Success" })
-				if refreshAll then refreshAll() end
-			else
-				Library:Notify({ Title = "Delete failed", Content = "File not found.", Type = "Error" })
-			end
-		end,
-	})
-
-	secManage:Button({
-		Name = "Refresh list",
-		Callback = function()
-			if refreshAll then refreshAll() end
-			Library:Notify({ Title = "Refreshed", Content = "Config list updated.", Type = "Info", Duration = 2 })
-		end,
-	})
-
-	refreshAll = function()
-		local opts = configOptions()
-		loadDropdown:SetOptions(opts)
-		deleteDropdown:SetOptions(opts)
-		autoDropdown:SetOptions(opts)
+	-- Expand keybind button to fill row & left-align the key text
+	do
+		local kbBtn = hotkeyEl.Instance:FindFirstChildWhichIsA("TextButton")
+		if kbBtn then
+			kbBtn.AnchorPoint = Vector2.new(0, 0.5)
+			kbBtn.Position = UDim2.new(0, 0, 0.5, 0)
+			kbBtn.Size = UDim2.new(1, 0, 0, 28)
+			kbBtn.TextXAlignment = Enum.TextXAlignment.Left
+			padding(kbBtn, 0, 12, 0, 12)
+		end
 	end
 
+	-- === RIGHT: Accent Color ===
+	local accentGroup = makeGroup(rightCol, "right", "Accent Color")
+	accentGroup:ColorPicker({
+		Name = "", Flag = "__theme_Accent",
+		Default = Library.Theme.Accent,
+		OnChanged = function(color)
+			Library.Theme.Accent = color
+			Library:RefreshTheme()
+		end,
+	})
+
+	-- === RIGHT: Actions ===
+	local actionsGroup = makeGroup(rightCol, "right", "")
+	local resetAimBtn = styledButton(actionsGroup.Container, "Reset Aim Target", "◎", { Order = 1 })
+	local resetCamBtn = styledButton(actionsGroup.Container, "Reset Camera", "◉", { Order = 2 })
+	local unloadBtn   = styledButton(actionsGroup.Container, "Unload Script", "⏻", { Order = 3, Danger = true })
+
+	-- === CONNECTIONS ===
+	saveBtn.MouseButton1Click:Connect(function()
+		local name = tostring(nameInput:Get() or ""):gsub("%s+", "_"):gsub("[^%w_%-%.]", "")
+		if name == "" then
+			Library:Notify({ Title = "Save failed", Content = "Enter a name first.", Type = "Warning" })
+			return
+		end
+		local ok, err = Library:SaveConfigNamed(name)
+		if ok then
+			Library:Notify({ Title = "Saved", Content = "Config '" .. name .. "' saved.", Type = "Success" })
+			local opts = configOptions()
+			loadDropdown:SetOptions(opts)
+			autoDropdown:SetOptions(opts)
+		else
+			Library:Notify({ Title = "Save failed", Content = tostring(err or "unknown"), Type = "Error" })
+		end
+	end)
+
+	loadBtn.MouseButton1Click:Connect(function()
+		local name = loadDropdown:Get()
+		if not name or name == "None" then
+			Library:Notify({ Title = "Load failed", Content = "No config selected.", Type = "Warning" })
+			return
+		end
+		if Library:LoadConfigNamed(name) then
+			Library:Notify({ Title = "Loaded", Content = "Config '" .. name .. "' applied.", Type = "Success" })
+		else
+			Library:Notify({ Title = "Load failed", Content = "Could not read '" .. name .. "'.", Type = "Error" })
+		end
+	end)
+
+	local confirming = false
+	deleteBtn.MouseButton1Click:Connect(function()
+		local name = loadDropdown:Get()
+		if not name or name == "None" then
+			Library:Notify({ Title = "Delete", Content = "Select a config first.", Type = "Warning" })
+			return
+		end
+		if not confirming then
+			confirming = true
+			Library:Notify({ Title = "Confirm delete",
+				Content = "Click again to delete '" .. name .. "'.",
+				Type = "Warning", Duration = 3 })
+			task.delay(3, function() confirming = false end)
+			return
+		end
+		confirming = false
+		if Library:DeleteConfig(name) then
+			if Library:GetAutoLoad() == name then Library:SetAutoLoad(nil) end
+			Library:Notify({ Title = "Deleted", Content = "'" .. name .. "' removed.", Type = "Success" })
+			local opts = configOptions()
+			loadDropdown:SetOptions(opts)
+			autoDropdown:SetOptions(opts)
+		else
+			Library:Notify({ Title = "Delete failed", Content = "File not found.", Type = "Error" })
+		end
+	end)
+
+	autoDropdown:OnChanged(function(value)
+		if value == "None" then
+			Library:SetAutoLoad(nil)
+			Library:Notify({ Title = "Auto-load", Content = "Disabled.", Type = "Info" })
+		else
+			Library:SetAutoLoad(value)
+			Library:Notify({ Title = "Auto-load",
+				Content = "Will load '" .. value .. "' on startup.", Type = "Success" })
+		end
+	end)
+
+	resetAimBtn.MouseButton1Click:Connect(function()
+		if handlers.ResetAim then
+			task.spawn(handlers.ResetAim)
+		else
+			Library:Notify({ Title = "Reset Aim Target",
+				Content = "No handler registered.", Type = "Info", Duration = 2 })
+		end
+	end)
+
+	resetCamBtn.MouseButton1Click:Connect(function()
+		if handlers.ResetCamera then
+			task.spawn(handlers.ResetCamera)
+		else
+			local plr = Players.LocalPlayer
+			local char = plr and plr.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+				workspace.CurrentCamera.CameraSubject = hum
+				Library:Notify({ Title = "Camera", Content = "Reset to local player.", Type = "Success", Duration = 2 })
+			else
+				Library:Notify({ Title = "Camera", Content = "No character found.", Type = "Warning", Duration = 2 })
+			end
+		end
+	end)
+
+	unloadBtn.MouseButton1Click:Connect(function()
+		if handlers.Unload then
+			task.spawn(handlers.Unload)
+		else
+			Library:Unload()
+		end
+	end)
+
 	if not fileAPI then
-		tab:Section("Warning"):Paragraph({
+		local warnGroup = makeGroup(leftCol, "left", "Warning")
+		warnGroup:Paragraph({
 			Text = "Your executor does not expose file functions. Configs will not persist.",
 			Color = theme.Bad,
 		})
 	end
 
-	return { Refresh = refreshAll }
+	return {
+		Refresh = function()
+			local opts = configOptions()
+			loadDropdown:SetOptions(opts)
+			autoDropdown:SetOptions(opts)
+		end,
+	}
 end
 
 --=====================================================================
