@@ -2117,7 +2117,7 @@ function Library:ApplyAutoLoad()
 end
 
 --=====================================================================
--- CONFIG TAB (compact two-column layout, no scroll needed)
+-- CONFIG TAB (compact two-column layout)
 --=====================================================================
 function Library:BuildConfigTab(tab)
 	local theme = Library.Theme
@@ -2289,6 +2289,30 @@ function Library:BuildConfigTab(tab)
 		Name = "", Options = configOptions(), Default = "None",
 		Placeholder = "Select a config...", MaxVisible = 5,
 	})
+
+	-- Restyle the Load Config dropdown to look like a proper input field
+	-- (visible box with left-aligned text, chevron on the right)
+	do
+		local row = loadDropdown.Instance
+		if row then
+			local header = row:FindFirstChildWhichIsA("TextButton")
+			if header then
+				header.BackgroundTransparency = 0
+				header.BackgroundColor3 = theme.SurfaceAlt
+				corner(header, 6)
+				stroke(header, theme.Outline, 1, 0.5)
+			end
+			for _, d in ipairs(row:GetDescendants()) do
+				if d:IsA("TextLabel") and d.TextXAlignment == Enum.TextXAlignment.Right then
+					d.AnchorPoint = Vector2.new(0, 0.5)
+					d.Position = UDim2.new(0, 10, 0.5, 0)
+					d.Size = UDim2.new(1, -34, 1, 0)
+					d.TextXAlignment = Enum.TextXAlignment.Left
+					break
+				end
+			end
+		end
+	end
 
 	local btnsRow = buttonRow(loadGroup.Container, 2)
 	local loadBtn = styledButton(btnsRow, "Load", "↑", {
